@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/LondonLogo.png?v=2.0" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/LondonLogo.png?v=2.0" />
+  <link rel="shortcut icon" type="image/png" href="/LondonLogo.png?v=2.0" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/LondonLogo.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/LondonLogo.png" />
+  <link rel="apple-touch-icon" sizes="144x144" href="/LondonLogo.png" />
+  <link rel="apple-touch-icon" sizes="120x120" href="/LondonLogo.png" />
+  <link rel="apple-touch-icon" sizes="76x76" href="/LondonLogo.png" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <!-- Performance optimizations -->
+  <meta name="description" content="Skill Wallah EdTech - Premier online learning platform for professional development and skill enhancement" />
+  <meta name="theme-color" content="#f59e0b" />
+  
+  <!-- Favicon & App Icons -->
+  <meta name="msapplication-TileColor" content="#f59e0b" />
+  <meta name="msapplication-TileImage" content="/LondonLogo.png" />
+  <meta name="msapplication-square70x70logo" content="/LondonLogo.png" />
+  <meta name="msapplication-square150x150logo" content="/LondonLogo.png" />
+  <meta name="msapplication-wide310x150logo" content="/LondonLogo.png" />
+  <meta name="msapplication-square310x310logo" content="/LondonLogo.png" />
+  <meta name="application-name" content="Skill Wallah EdTech" />
+  <meta name="apple-mobile-web-app-title" content="Skill Wallah" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  
+  <!-- Enhanced favicon display -->
+  <style>
+    /* Force favicon to display properly in all browsers */
+    link[rel="icon"], link[rel="shortcut icon"] {
+      -webkit-transform: scale(1.2);
+      -moz-transform: scale(1.2);
+      -ms-transform: scale(1.2);
+      -o-transform: scale(1.2);
+      transform: scale(1.2);
+    }
+  </style>
+  
+  <!-- DNS prefetch for external domains -->
+  <link rel="dns-prefetch" href="//ui-avatars.com" />
+  <link rel="dns-prefetch" href="//checkout.razorpay.com" />
+  
+  <!-- Preconnect to critical domains -->
+  <link rel="preconnect" href="http://localhost" crossorigin />
+  <link rel="preconnect" href="https://checkout.razorpay.com" crossorigin />
+  
+  <!-- Lazy load Razorpay SDK -->
+  <script src="https://checkout.razorpay.com/v1/checkout.js" defer></script>
+  
+  <title>Skill Wallah EdTech</title>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+
+</html>

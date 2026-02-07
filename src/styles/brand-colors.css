@@ -1,0 +1,289 @@
+/* Brand Color Utilities for Skill Wallah EdTech */
+/* Use these classes throughout your application for consistent branding */
+
+:root {
+  /* Primary Brand Colors - Modern Professional */
+  --london-primary: #6366f1;
+  --london-primary-dark: #4f46e5;
+  --london-primary-light: #8194ff;
+  --london-primary-lighter: #a4b8ff;
+  
+  /* Secondary Colors */
+  --london-secondary: #64748b;
+  --london-secondary-light: #94a3b8;
+  --london-secondary-dark: #475569;
+  
+  /* Accent Colors */
+  --london-accent: #f59e0b;
+  --london-accent-light: #fbd388;
+  --london-accent-dark: #d97706;
+  
+  /* Background Colors */
+  --london-bg-primary: #ffffff;
+  --london-bg-secondary: #f8fafc;
+  --london-bg-tertiary: #f1f5f9;
+  
+  /* Neutral Colors */
+  --london-border: rgba(99, 102, 241, 0.2);
+  --london-border-light: rgba(99, 102, 241, 0.1);
+  --london-shadow: rgba(99, 102, 241, 0.25);
+  
+  /* Text Colors */
+  --london-text-primary: #1e293b;
+  --london-text-secondary: #475569;
+  
+  /* Legacy support */
+  --london-gold: #6366f1;
+  --london-gold-dark: #4f46e5;
+  --london-cream: #f8fafc;
+}
+
+/* Button Styles */
+.btn-london-primary {
+  background: linear-gradient(to right, #6366f1, #4f46e5);
+  color: white;
+  font-weight: 500;
+  padding: 0.625rem 1.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.btn-london-primary:hover {
+  background: linear-gradient(to right, #4f46e5, #4338ca);
+  box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.btn-london-secondary {
+  background: white;
+  color: #6366f1;
+  font-weight: 500;
+  padding: 0.625rem 1.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  transition: all 0.3s ease;
+}
+
+.btn-london-secondary:hover {
+  background: rgba(152, 137, 19, 0.05);
+  border-color: #988913;
+}
+
+.btn-london-outline {
+  background: transparent;
+  color: #988913;
+  font-weight: 500;
+  padding: 0.625rem 1.5rem;
+  border-radius: 0.5rem;
+  border: 2px solid #988913;
+  transition: all 0.3s ease;
+}
+
+.btn-london-outline:hover {
+  background: #988913;
+  color: white;
+}
+
+/* Link Styles */
+.link-london {
+  color: #988913;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.link-london:hover {
+  color: #7d7310;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.link-london-nav {
+  color: #374151;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.link-london-nav:hover {
+  color: #988913;
+  background: rgba(152, 137, 19, 0.1);
+}
+
+/* Card Styles */
+.card-london {
+  background: white;
+  border: 1px solid rgba(152, 137, 19, 0.2);
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.card-london:hover {
+  box-shadow: 0 4px 6px -1px rgba(152, 137, 19, 0.1);
+  border-color: rgba(152, 137, 19, 0.4);
+}
+
+.card-london-featured {
+  background: linear-gradient(to bottom right, white, rgba(245, 234, 216, 0.3));
+  border: 2px solid rgba(152, 137, 19, 0.3);
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.card-london-featured:hover {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  border-color: rgba(152, 137, 19, 0.6);
+}
+
+/* Badge Styles */
+.badge-london {
+  background: #988913;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.125rem 0.625rem;
+  border-radius: 9999px;
+}
+
+.badge-london-light {
+  background: rgba(152, 137, 19, 0.1);
+  color: #988913;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.125rem 0.625rem;
+  border-radius: 9999px;
+}
+
+/* Input Styles */
+.input-london {
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  padding: 0.625rem 1rem;
+  transition: all 0.2s ease;
+}
+
+.input-london:focus {
+  border-color: #988913;
+  box-shadow: 0 0 0 2px rgba(152, 137, 19, 0.2);
+  outline: none;
+}
+
+/* Logo Enhancement Classes */
+.logo-london {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+  transition: all 0.2s ease;
+}
+
+.logo-london:hover {
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1));
+}
+
+.logo-london-hover {
+  transition: transform 0.2s ease;
+}
+
+.logo-london-hover:hover {
+  transform: scale(1.05);
+}
+
+/* Text Styles */
+.text-london-primary {
+  color: #988913;
+}
+
+.text-london-secondary {
+  color: #7d7310;
+}
+
+.text-london-light {
+  color: #c5a32e;
+}
+
+/* Gradient Text */
+.text-london-gradient {
+  background: linear-gradient(to right, #988913, #c5a32e);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Animation Classes */
+.animate-london-pulse {
+  animation: londonPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes londonPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.02);
+  }
+}
+
+.animate-london-glow {
+  animation: londonGlow 3s ease-in-out infinite alternate;
+}
+
+@keyframes londonGlow {
+  from {
+    box-shadow: 0 0 10px rgba(152, 137, 19, 0.3);
+  }
+  to {
+    box-shadow: 0 0 20px rgba(152, 137, 19, 0.6);
+  }
+}
+
+/* Status Colors */
+.status-success {
+  background: rgba(152, 137, 19, 0.1);
+  color: #7d7310;
+  border: 1px solid rgba(152, 137, 19, 0.3);
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+}
+
+.status-warning {
+  background: rgba(197, 163, 46, 0.1);
+  color: #c5a32e;
+  border: 1px solid rgba(197, 163, 46, 0.3);
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+}
+
+.status-info {
+  background: rgba(152, 137, 19, 0.05);
+  color: #988913;
+  border: 1px solid rgba(152, 137, 19, 0.2);
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+}
+
+/* Utility Classes */
+.hover-london-scale:hover {
+  transform: scale(1.05);
+  transition: transform 0.2s ease;
+}
+
+.border-london {
+  border-color: rgba(152, 137, 19, 0.2);
+}
+
+.border-london-focus:focus {
+  border-color: #988913;
+}
+
+/* Navigation specific */
+.nav-london-bg {
+  background: linear-gradient(to right, #f9f7f1, #f5ead8, #f1f0e8);
+  border-bottom: 1px solid rgba(224, 213, 179, 0.3);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}

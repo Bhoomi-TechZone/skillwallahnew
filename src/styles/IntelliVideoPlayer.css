@@ -1,0 +1,263 @@
+/* IntelliVideoPlayer Custom Styles */
+
+/* Custom slider for volume control */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-track {
+  background: rgba(255, 255, 255, 0.3);
+  height: 4px;
+  border-radius: 2px;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #ffffff;
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.slider::-moz-range-track {
+  background: rgba(255, 255, 255, 0.3);
+  height: 4px;
+  border-radius: 2px;
+  border: none;
+}
+
+.slider::-moz-range-thumb {
+  background: #ffffff;
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Custom scrollbar for playlist */
+.overflow-y-auto::-webkit-scrollbar {
+  width: 8px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: #374151;
+  border-radius: 4px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: #6b7280;
+  border-radius: 4px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Animation for play button overlay */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.play-overlay {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Loading spinner for video */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-spinner {
+  animation: spin 1s linear infinite;
+}
+
+/* Progress bar hover effect */
+.progress-bar:hover .progress-fill {
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+}
+
+/* Smooth transitions */
+.video-controls {
+  transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+}
+
+.video-controls.hidden {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 768px) {
+  .video-player-container {
+    flex-direction: column;
+  }
+  
+  .playlist-sidebar {
+    width: 100%;
+    max-height: 300px;
+  }
+  
+  .video-controls {
+    padding: 1rem;
+  }
+  
+  .control-button {
+    padding: 0.5rem;
+  }
+}
+
+/* Custom tooltip styles */
+.tooltip {
+  position: relative;
+}
+
+.tooltip::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 1000;
+}
+
+.tooltip:hover::before {
+  opacity: 1;
+}
+
+/* Fullscreen mode adjustments */
+.fullscreen-player {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 9999 !important;
+}
+
+/* Video quality indicator */
+.quality-indicator {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* Lesson progress indicator */
+.lesson-progress {
+  position: relative;
+  overflow: hidden;
+}
+
+.lesson-progress::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+  transition: width 0.3s ease;
+}
+
+.lesson-progress.completed::after {
+  width: 100%;
+}
+
+.lesson-progress.in-progress::after {
+  width: var(--progress-width, 0%);
+}
+
+/* Custom focus styles for accessibility */
+.focus-visible:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Hover effects for interactive elements */
+.interactive-hover {
+  transition: all 0.2s ease;
+}
+
+.interactive-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Module header styling */
+.module-header {
+  background: linear-gradient(135deg, #1f2937, #374151);
+  border-left: 4px solid #3b82f6;
+}
+
+/* Lesson item styling */
+.lesson-item {
+  border-left: 3px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.lesson-item.active {
+  border-left-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.lesson-item.completed {
+  border-left-color: #10b981;
+}
+
+.lesson-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Video thumbnail styling */
+.video-thumbnail {
+  position: relative;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.video-thumbnail::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(45deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.video-thumbnail:hover::before {
+  opacity: 1;
+}
