@@ -330,13 +330,29 @@ const AdminIdCard = () => {
           father_name: s.father_name || s.fathers_name || s.parent_name || 'N/A',
           mother_name: s.mother_name || s.mothers_name || 'N/A',
           date_of_admission: s.date_of_admission || s.admission_date || s.enrollment_date || s.joining_date || '',
-          photo: s.photo || s.photo_url || s.student_photo || s.profile_image || '',
+          photo: s.photo || s.photo_url || s.student_photo || s.profile_image || s.profile_photo || s.avatar || s.image || matchedIdCard?.student_photo_url || matchedIdCard?.photo_url || '',
+          photo_url: s.photo_url || s.photo || s.student_photo || matchedIdCard?.student_photo_url || matchedIdCard?.photo_url || '',
+          student_photo: s.student_photo || s.photo || s.photo_url || matchedIdCard?.student_photo_url || matchedIdCard?.photo_url || '',
+          profile_image: s.profile_image || s.photo || s.photo_url || '',
           photoPreview: (() => {
             const API_BASE_URL = 'http://localhost:4000';
-            const photoSources = [s.photoPreview, s.photo, s.photo_url, s.student_photo, s.profile_image].filter(Boolean);
+            // Include all possible photo sources including ID card student_photo_url
+            const photoSources = [
+              s.photoPreview,
+              s.photo,
+              s.photo_url,
+              s.student_photo,
+              s.profile_image,
+              s.profile_photo,
+              s.avatar,
+              s.image,
+              matchedIdCard?.student_photo_url,  // Add ID card photo (explicit)
+              matchedIdCard?.photo_url           // Add ID card photo (standard)
+            ].filter(Boolean);
+
             if (photoSources.length > 0) {
               const photo = photoSources[0];
-              // If already a full URL, use it
+              // If already a full URL or base64, use it
               if (photo.startsWith('http') || photo.startsWith('data:')) {
                 return photo;
               } else {
@@ -350,7 +366,8 @@ const AdminIdCard = () => {
                   return fullUrl;
                 } else {
                   // Try multiple standard paths
-                  const fullUrl = `${API_BASE_URL}/uploads/profile/${cleanPath}`;
+                  // Prefer student_photos over profile for ID cards as this is the standard upload location
+                  const fullUrl = `${API_BASE_URL}/uploads/student_photos/${cleanPath}`;
                   console.log(`📸 [PHOTO] ${s.student_name}: ${photo} -> ${fullUrl}`);
                   return fullUrl;
                 }
@@ -716,18 +733,39 @@ const AdminIdCard = () => {
       // Upload photo if provided
       if (formData.photo && savedStudent.id) {
         try {
-          await branchStudentService.uploadStudentPhoto(savedStudent.id, formData.photo);
-          console.log('✅ [ID CARD] Photo uploaded');
+          const photoUploadResult = await branchStudentService.uploadStudentPhoto(savedStudent.id, formData.photo);
+          console.log('✅ [ID CARD] Photo uploaded, result:', photoUploadResult);
 
-          // Update the savedStudent with the uploaded photo info
+          // Use the actual photo URL from backend, not the base64 preview
+          const uploadedPhotoUrl = photoUploadResult.photo_url || photoUploadResult.photoUrl || photoUploadResult.url;
+
+          if (uploadedPhotoUrl) {
+            console.log('📸 [ID CARD] Using uploaded photo URL:', uploadedPhotoUrl);
+            savedStudent.photo = uploadedPhotoUrl;
+            savedStudent.photoPreview = uploadedPhotoUrl;
+            savedStudent.student_photo = uploadedPhotoUrl;
+            savedStudent.photo_url = uploadedPhotoUrl;
+            savedStudent.profile_image = uploadedPhotoUrl;
+            savedStudent.student_photo_url = uploadedPhotoUrl;
+          } else {
+            console.warn('⚠️ [ID CARD] No photo URL in upload response, using base64 preview');
+            savedStudent.photo = formData.photoPreview;
+            savedStudent.photoPreview = formData.photoPreview;
+            savedStudent.student_photo = formData.photoPreview;
+            savedStudent.photo_url = formData.photoPreview;
+            savedStudent.profile_image = formData.photoPreview;
+            savedStudent.student_photo_url = formData.photoPreview;
+          }
+
+        } catch (photoError) {
+          console.warn('⚠️ [ID CARD] Photo upload failed:', photoError);
+          // Use base64 preview as fallback
           savedStudent.photo = formData.photoPreview;
           savedStudent.photoPreview = formData.photoPreview;
           savedStudent.student_photo = formData.photoPreview;
           savedStudent.photo_url = formData.photoPreview;
           savedStudent.profile_image = formData.photoPreview;
-
-        } catch (photoError) {
-          console.warn('⚠️ [ID CARD] Photo upload failed:', photoError);
+          savedStudent.student_photo_url = formData.photoPreview;
         }
       }
 
@@ -747,7 +785,8 @@ const AdminIdCard = () => {
             expiry_date: new Date(Date.now() + (2 * 365 * 24 * 60 * 60 * 1000)).toISOString(), // 2 years from now
             status: 'active',
             card_type: 'student',
-            photo_url: savedStudent.photoPreview || savedStudent.photo_url
+            photo_url: savedStudent.photoPreview || savedStudent.photo_url,
+            student_photo_url: savedStudent.photoPreview || savedStudent.photo_url  // Add this field for student photo
           };
 
           console.log('📤 [ID CARD] Saving ID card to database:', idCardPayload);
@@ -819,9 +858,11 @@ const AdminIdCard = () => {
     const API_BASE_URL = 'http://localhost:4000';
     let photoUrl = '';
 
-    // Priority 1: Check idCard.student_photo_url (actual student photo, NOT photo_url which is ID card file path)
+    // Priority order for photo sources:
+    // 1. student.id_card.student_photo_url - The actual student photo stored in ID card record
+    // 2. Other student photo fields from the student record
     const photoSources = [
-      student.id_card?.student_photo_url,  // Base64 or URL of student photo from backend
+      student.id_card?.student_photo_url,  // PRIMARY: Student photo URL from ID card record (NOT the generated ID card file)
       student.photoPreview,
       student.photo,
       student.photo_url,
@@ -832,7 +873,31 @@ const AdminIdCard = () => {
       student.avatar
     ].filter(Boolean);
 
-    console.log('📸 [PHOTO RESOLVE] Available photo sources:', photoSources);
+    // Filter out invalid photo paths (logos, etc.)
+    // Filter out invalid photo paths (logos, ID card generated files, etc.)
+    const validPhotoSources = photoSources.filter(source => {
+      if (!source || typeof source !== 'string') return false;
+
+      const lowerSource = source.toLowerCase();
+
+      // EXCLUDE: Generated ID card PNG files (these have specific naming patterns like "id_card_ID09400002.png")
+      // We check for the pattern "id_card_" followed by alphanumeric characters and .png
+      // This allows student photos in the id_cards directory but excludes the generated ID card images
+      if (/id_card_[a-z0-9]+\.png/i.test(lowerSource)) {
+        console.log('⚠️ [PHOTO RESOLVE] Skipping generated ID card file:', source);
+        return false;
+      }
+
+      // EXCLUDE: Logos (should not be used as student photo)
+      if (lowerSource.includes('logo') || lowerSource.includes('nur clm')) {
+        console.log('⚠️ [PHOTO RESOLVE] Skipping logo path:', source);
+        return false;
+      }
+
+      // Accept all other sources (including student photos in id_cards directory)
+      return true;
+    });
+
     console.log('📸 [PHOTO RESOLVE] Student photo fields:', {
       idCard_student_photo_url: student.id_card?.student_photo_url,
       photo: student.photo,
@@ -846,8 +911,8 @@ const AdminIdCard = () => {
       note: 'id_card.photo_url is ID card file path, not student photo'
     });
 
-    if (photoSources.length > 0) {
-      const primaryPhoto = photoSources[0];
+    if (validPhotoSources.length > 0) {
+      const primaryPhoto = validPhotoSources[0];
 
       if (primaryPhoto.startsWith('data:image/')) {
         // Base64 image data - use directly
@@ -869,12 +934,13 @@ const AdminIdCard = () => {
         photoUrl = `${API_BASE_URL}/${pathFromUploads}`;
         console.log('📸 [PHOTO RESOLVE] Extracted uploads path:', photoUrl);
       } else {
-        // Treat as filename in profile uploads
-        photoUrl = `${API_BASE_URL}/uploads/profile/${primaryPhoto}`;
-        console.log('📸 [PHOTO RESOLVE] Treating as profile filename:', photoUrl);
+        // Treat as filename in student_photos uploads
+        photoUrl = `${API_BASE_URL}/uploads/student_photos/${primaryPhoto}`;
+        console.log('📸 [PHOTO RESOLVE] Treating as student photo filename:', photoUrl);
       }
     } else {
-      console.log('📸 [PHOTO RESOLVE] No photo sources found, using default');
+      console.log('📸 [PHOTO RESOLVE] No valid photo sources found, using default');
+      console.log('📸 [PHOTO RESOLVE] Full student object:', JSON.stringify(student, null, 2));
       photoUrl = null;
     }
 
@@ -991,7 +1057,8 @@ const AdminIdCard = () => {
             expiry_date: new Date(Date.now() + (2 * 365 * 24 * 60 * 60 * 1000)).toISOString(), // 2 years from now
             status: 'active',
             card_type: 'student',
-            photo_url: studentData.photo || studentData.photoPreview
+            photo_url: studentData.photo || studentData.photoPreview,
+            student_photo_url: studentData.photo || studentData.photoPreview  // Save student photo separately
           };
 
           const response = await fetch('http://localhost:4000/api/branch/id-cards/generate', {
@@ -1200,7 +1267,8 @@ const AdminIdCard = () => {
               expiry_date: new Date(Date.now() + (2 * 365 * 24 * 60 * 60 * 1000)).toISOString(),
               status: 'active',
               card_type: 'student',
-              photo_url: studentData.photo || studentData.photoPreview
+              photo_url: studentData.photo || studentData.photoPreview,
+              student_photo_url: studentData.photo || studentData.photoPreview  // Save student photo separately
             };
 
             const idCardResponse = await fetch('http://localhost:4000/api/branch/id-cards/generate', {
@@ -2321,7 +2389,9 @@ const AdminIdCard = () => {
                             branch.name ||
                             branch.branch_name ||
                             `Branch ${index + 1}`;
-                          const centreCode = branch.centre_info?.code ||
+                          const centreCode = branch.centre_info?.branch_code ||
+                            branch.centre_info?.code ||
+                            branch.branch_code ||
                             branch.franchise_code ||
                             branch.code ||
                             '';

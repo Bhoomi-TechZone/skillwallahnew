@@ -64,15 +64,49 @@ async def generate_marksheet_image(marksheet_data: dict, output_path: str) -> bo
         # ---------------------------------------
         # LOAD TEMPLATE
         # ---------------------------------------
-        template_path = os.path.join(
-            BASE_DIR, "uploads", "Marksheet", "marksheet.jpeg"
-        )
+
+        # Check if a custom template path is provided in the data
+        custom_template_path = marksheet_data.get("template_path")
         
-        print(f"[MARKSHEET] Template path: {template_path}")
+        if custom_template_path:
+            # Clean up the path (remove leading slashes or excessive dots)
+            clean_path = custom_template_path.replace("\\", "/").strip("/")
+            
+            # Remove 'london_lms/' prefix if present, as BASE_DIR usually points to project root
+            if clean_path.startswith("london_lms/"):
+                clean_path = clean_path.replace("london_lms/", "", 1)
+                
+            # Try multiple paths to find the template
+            possible_template_paths = [
+                os.path.join(BASE_DIR, clean_path),
+                os.path.join(os.getcwd(), clean_path),
+                clean_path,
+                os.path.abspath(clean_path)
+            ]
+            
+            template_path = None
+            for path in possible_template_paths:
+                print(f"[MARKSHEET] Checking template path: {path}")
+                if os.path.exists(path):
+                    template_path = path
+                    print(f"[MARKSHEET] ✅ Found template at: {path}")
+                    break
+            
+            if not template_path:
+                 # If we couldn't find it, default to the first constructed path for the error message
+                 template_path = os.path.join(BASE_DIR, clean_path)
+                 print(f"[MARKSHEET] ❌ Template not found in any checked location")
+                 raise FileNotFoundError(f"Marksheet template not found at {clean_path}")
+
+            print(f"[MARKSHEET] Using final template path: {template_path}")
+        else:
+             # If no template path is provided, we raise an error instead of using a default
+             raise FileNotFoundError("No template path provided in request data. Default template fallback has been disabled.")
+        
         print(f"[MARKSHEET] Input data: {marksheet_data}")
 
         if not os.path.exists(template_path):
-            raise FileNotFoundError("Marksheet template not found")
+             raise FileNotFoundError(f"Marksheet template not found at {template_path}")
 
         img = Image.open(template_path).convert("RGB")
         draw = ImageDraw.Draw(img)
@@ -280,14 +314,17 @@ async def generate_marksheet_image(marksheet_data: dict, output_path: str) -> bo
             try:
                 photo = None
                 
+                # Strip query parameters from photo URL to get actual file path
+                # This prevents caching issues when the same URL has different query params
+                clean_photo_url = photo_url.split('?')[0] if '?' in photo_url else photo_url
+                print(f"[MARKSHEET] Clean photo URL (without query params): {clean_photo_url}")
+                
                 # Check if it's a URL (http/https)
-                if photo_url.startswith('http'):
-                    print(f"[MARKSHEET] Loading photo from URL: {photo_url}")
-                    # Remove query params for logging but keep for request
-                    clean_url = photo_url.split('?')[0] if '?' in photo_url else photo_url
-                    print(f"[MARKSHEET] Clean URL: {clean_url}")
-                    response = requests.get(photo_url, timeout=10)
+                if clean_photo_url.startswith('http'):
+                    print(f"[MARKSHEET] Loading photo from URL: {clean_photo_url}")
+                    response = requests.get(clean_photo_url, timeout=10)
                     if response.status_code == 200:
+                        # Load image from bytes to avoid caching
                         photo = Image.open(BytesIO(response.content))
                         print(f"[MARKSHEET] Photo loaded from HTTP URL successfully")
                     else:
@@ -302,7 +339,7 @@ async def generate_marksheet_image(marksheet_data: dict, output_path: str) -> bo
                     print(f"[MARKSHEET] Current working directory: {cwd}")
                     
                     # Strip leading slash and normalize
-                    clean_photo_path = photo_url.lstrip("/").replace("\\", "/")
+                    clean_photo_path = clean_photo_url.lstrip("/").replace("\\", "/")
                     filename = os.path.basename(clean_photo_path)
                     
                     # Build possible paths
@@ -324,7 +361,9 @@ async def generate_marksheet_image(marksheet_data: dict, output_path: str) -> bo
                         print(f"[MARKSHEET] Trying photo path: {path}")
                         if os.path.exists(path):
                             print(f"[MARKSHEET] ✅ Photo FOUND at: {path}")
-                            photo = Image.open(path)
+                            # Open and immediately load to avoid file handle caching
+                            with Image.open(path) as img:
+                                photo = img.copy()  # Create a copy to avoid caching issues
                             break
                         else:
                             print(f"[MARKSHEET] ❌ Path not found: {path}")

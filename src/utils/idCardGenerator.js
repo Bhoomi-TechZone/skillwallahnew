@@ -108,6 +108,16 @@ export const generateIdCard = async (student, branchData = {}) => {
         if (photoBase64) {
           console.log('📸 [PHOTO RENDER] Adding photo to ID card');
           const photoImg = new Image();
+
+          // Only set crossOrigin for URLs, not for base64 data
+          // Base64 data doesn't need CORS and setting it can cause issues
+          if (!photoBase64.startsWith('data:')) {
+            console.log('🔒 [PHOTO RENDER] Setting crossOrigin for URL-based photo');
+            photoImg.crossOrigin = 'anonymous';
+          } else {
+            console.log('📦 [PHOTO RENDER] Using base64 photo (no CORS needed)');
+          }
+
           photoImg.src = photoBase64;
 
           photoImg.onload = () => {

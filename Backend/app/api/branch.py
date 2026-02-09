@@ -357,11 +357,13 @@ async def get_my_branches(franchise_code: str, request: Request):
         {
             "franchise_code": franchise_code,
             "status": {"$ne": "DELETED"}
-        },
-        {"_id": 0}
+        }
+        # Don't exclude _id - frontend needs it for unique keys
     )
 
     for branch in cursor:
+        # Convert ObjectId to string for JSON serialization
+        branch["_id"] = str(branch["_id"])
         branches.append(branch)
     
     logger.info(f"📊 [GET BRANCHES] Found {len(branches)} branches for franchise {franchise_code}")
@@ -370,7 +372,13 @@ async def get_my_branches(franchise_code: str, request: Request):
     if branches:
         for i, branch in enumerate(branches):
             branch_name = branch.get('centre_info', {}).get('centre_name', 'Unknown')
-            branch_code = branch.get('centre_info', {}).get('code', 'No Code')
+            # Get branch_code from correct field
+            branch_code = (
+                branch.get('centre_info', {}).get('branch_code') or 
+                branch.get('centre_info', {}).get('code') or 
+                branch.get('branch_code') or
+                'No Code'
+            )
             logger.info(f"   Branch {i+1}: {branch_name} ({branch_code})")
     
     result = {
@@ -7157,7 +7165,8 @@ async def generate_student_marksheet(request: Request, current_user: dict = Depe
             "percentage": body.get("percentage") or round(percentage, 2),
             "grade": body.get("overall_grade") or body.get("grade", grade),
             "result": result,
-            "photo_url": photo_url
+            "photo_url": photo_url,
+            "template_path": body.get("template_path")
         }
         
         logger.info(f"[MARKSHEET] Marksheet data for image: {marksheet_data_for_image}")

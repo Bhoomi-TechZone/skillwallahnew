@@ -49,6 +49,95 @@ const AdminCertificate = ({ onDataChange }) => {
     }
   };
 
+  // Shared photo resolution function for certificates
+  const resolveStudentPhoto = (student) => {
+    const API_BASE_URL = 'http://localhost:4000';
+    let photoUrl = '';
+
+    // Priority order for photo sources
+    const photoSources = [
+      student.photo_url,
+      student.photo,
+      student.student_photo,
+      student.profile_image,
+      student.profile_photo,
+      student.image,
+      student.avatar
+    ].filter(Boolean);
+
+    // Filter out invalid photo paths (logos, ID cards, certificates, etc.)
+    const validPhotoSources = photoSources.filter(source => {
+      if (!source || typeof source !== 'string') return false;
+
+      const lowerSource = source.toLowerCase();
+
+      // EXCLUDE: Generated ID card PNG files
+      if (/id_card_[a-z0-9]+\.png/i.test(lowerSource)) {
+        console.log('⚠️ [CERT PHOTO] Skipping ID card file:', source);
+        return false;
+      }
+
+      // EXCLUDE: Generated certificate files
+      if (/certificate_[a-z0-9]+\.png/i.test(lowerSource) || lowerSource.includes('generated')) {
+        console.log('⚠️ [CERT PHOTO] Skipping certificate file:', source);
+        return false;
+      }
+
+      // EXCLUDE: Logos
+      if (lowerSource.includes('logo') || lowerSource.includes('nur clm')) {
+        console.log('⚠️ [CERT PHOTO] Skipping logo path:', source);
+        return false;
+      }
+
+      // Accept all other sources
+      return true;
+    });
+
+    console.log('📸 [CERT PHOTO] Student photo fields:', {
+      photo: student.photo,
+      photo_url: student.photo_url,
+      student_photo: student.student_photo,
+      profile_image: student.profile_image,
+      validSourcesCount: validPhotoSources.length
+    });
+
+    if (validPhotoSources.length > 0) {
+      const primaryPhoto = validPhotoSources[0];
+
+      if (primaryPhoto.startsWith('data:image/')) {
+        // Base64 image data - use directly
+        photoUrl = primaryPhoto;
+        console.log('📸 [CERT PHOTO] Using base64 image data');
+      } else if (primaryPhoto.startsWith('http://') || primaryPhoto.startsWith('https://')) {
+        // Full URL - use directly
+        photoUrl = primaryPhoto;
+        console.log('📸 [CERT PHOTO] Using full URL:', photoUrl);
+      } else if (primaryPhoto.startsWith('/uploads/') || primaryPhoto.startsWith('uploads/')) {
+        // Relative path to uploads
+        const cleanPath = primaryPhoto.startsWith('/') ? primaryPhoto : `/${primaryPhoto}`;
+        photoUrl = `${API_BASE_URL}${cleanPath}`;
+        console.log('📸 [CERT PHOTO] Converted relative upload path to full URL:', photoUrl);
+      } else if (primaryPhoto.includes('uploads')) {
+        // Contains uploads in path
+        const uploadsIndex = primaryPhoto.indexOf('uploads');
+        const pathFromUploads = primaryPhoto.substring(uploadsIndex);
+        photoUrl = `${API_BASE_URL}/${pathFromUploads}`;
+        console.log('📸 [CERT PHOTO] Extracted uploads path:', photoUrl);
+      } else {
+        // Treat as filename in student_photos uploads
+        photoUrl = `${API_BASE_URL}/uploads/student_photos/${primaryPhoto}`;
+        console.log('📸 [CERT PHOTO] Treating as student photo filename:', photoUrl);
+      }
+    } else {
+      console.log('📸 [CERT PHOTO] No valid photo sources found');
+      photoUrl = null;
+    }
+
+    console.log('📸 [CERT PHOTO] Final resolved photo URL:', photoUrl);
+    return photoUrl && photoUrl !== '' && photoUrl !== 'N/A' ? photoUrl : null;
+  };
+
+
   // State management
   const [certificates, setCertificates] = useState([]);
   const [filteredCertificates, setFilteredCertificates] = useState([]);
@@ -886,106 +975,85 @@ const AdminCertificate = ({ onDataChange }) => {
 
       // Check if certificate already has a generated image file from backend
       if (certificate.file_path) {
+        // Pre-verify image availability before showing modal
         // Apply cache busting even to existing certificates
         const cacheBustedImageUrl = getCacheBustedImageUrl(certificate.file_path);
-        console.log('📸 Using existing certificate image with cache busting:', cacheBustedImageUrl);
+        console.log('📸 Verifying existing certificate image:', cacheBustedImageUrl);
 
-        // Force reload the existing image to ensure fresh display
-        forceImageReload(cacheBustedImageUrl);
+        const img = new Image();
+        img.onload = () => {
+          console.log('✅ Certificate image verified successfully');
+          // Force reload the existing image to ensure fresh display
+          forceImageReload(cacheBustedImageUrl);
 
-        setSelectedCertificate({
-          ...certificate,
-          generated_image: cacheBustedImageUrl,
-          template_info: { name: `Default Template [Loaded: ${new Date().toLocaleTimeString()}]` }
-        });
-        setShowPreviewModal(true);
+          setSelectedCertificate({
+            ...certificate,
+            generated_image: cacheBustedImageUrl,
+            template_info: { name: `Default Template [Loaded: ${new Date().toLocaleTimeString()}]` }
+          });
+          setShowPreviewModal(true);
+        };
+
+        img.onerror = () => {
+          console.warn('⚠️ Certificate file missing or broken, automatically regenerating...');
+          handleRegenerateCertificate(certificate);
+        };
+
+        img.src = cacheBustedImageUrl;
         return;
       }
 
-      // If no file_path, generate certificate on frontend
+      // If no file_path, generate certificate via backend API for persistence
+      console.log('⚠️ No file path found, generating certificate via backend...');
       setGeneratingCertificate(true);
       setGeneratedCertificate(null);
 
-      // Clear any previous certificate data to ensure fresh generation
-      setSelectedCertificate({
-        ...certificate,
-        generated_image: null,
-        template_info: null
-      });
-      setShowPreviewModal(true);
-
-      // Get fresh student and course data
-      const studentData = students.find(s => (s.id || s._id) === certificate.student_id);
-      const courseData = courses.find(c => (c.id || c._id) === certificate.course_id);
-
-      if (!studentData || !courseData) {
-        throw new Error('Student or course data not found');
+      // Get the certificate ID
+      const certificateId = certificate._id || certificate.id || certificate.certificate_id;
+      if (!certificateId) {
+        throw new Error('Certificate ID not found');
       }
 
-      // Use fixed template only
-      const templateUsed = {
-        id: 'certificate-fixed',
-        name: 'Certificate Template',
-        description: 'Fixed certificate template',
-        path: FIXED_TEMPLATE_PATH,
-        filename: 'certificate.png'
+      // Prepare regeneration data
+      const regenerateData = {
+        certificate_id: certificateId,
+        generation_timestamp: Date.now(),
+        unique_id: `gen_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        force_new: true,
+        force_unique_file: true
       };
 
-      console.log('🎨 Using fixed template:', templateUsed);
+      // Call backend API
+      const result = await certificatesApi.regenerateCertificate(certificateId, regenerateData);
+      console.log('✅ Backend generation result:', result);
 
-      // Get branch data for certificate content
-      const userData = getUserData();
+      if (result && result.success) {
+        // Build the new image URL with enhanced cache busting
+        const cacheBustedImageUrl = getCacheBustedImageUrl(result.certificate.file_path);
+        console.log('📸 New certificate image URL:', cacheBustedImageUrl);
 
-      // Prepare data for certificate generator with UNIQUE CONTENT for each preview
-      const certificateData = {
-        // Basic student info with timestamp to make it unique
-        student_name: `${studentData.student_name || studentData.name} [Preview: ${Date.now()}]`,
-        student_registration: studentData.registration_number || studentData.username,
-        father_name: certificate.father_name,
-        date_of_birth: certificate.date_of_birth,
+        // Update local state
+        const newCertificate = {
+          ...certificate,
+          ...result.certificate,
+          generated_image: cacheBustedImageUrl,
+          template_info: { name: 'Certificate Template' }
+        };
 
-        // Add unique identifiers to make each preview different
-        course_name: `${courseData.course_name || courseData.name} [Generated: ${new Date().toLocaleTimeString()}]`,
-        course_duration: courseData.duration,
-        start_date: certificate.start_date,
-        certificate_number: `${certificate.certificate_number || 'CERT'}-PREVIEW-${Date.now()}`,
-        certificate_type: certificate.certificate_type,
-        grade: certificate.grade,
-        percentage: certificate.percentage,
-        completion_date: certificate.completion_date || new Date().toISOString().split('T')[0],
-        issue_date: certificate.issue_date || new Date().toISOString().split('T')[0],
-        cgpa: certificate.cgpa,
-        template: certificate.template,
+        setSelectedCertificate(newCertificate);
+        setGeneratedCertificate(cacheBustedImageUrl);
 
-        // Add unique watermark data for preview
-        preview_timestamp: new Date().toLocaleString('en-IN'),
-        preview_id: `PREVIEW-${Date.now()}`,
-        unique_preview_code: Math.random().toString(36).substr(2, 10).toUpperCase(),
-        atc_code: certificate.atc_code,
-        center_name: certificate.center_name || userData?.branch_name || userData?.name || 'SkillWallah EdTech',
-        center_address: userData?.address || '',
-        photo_url: studentData.photo || studentData.profile_image
-      };
+        // Open preview
+        setShowPreviewModal(true);
 
-      console.log('🎨 Certificate data for preview:', certificateData);
-      console.log('📄 Template being used:', templateUsed);
-      console.log('🖼️ Template path:', templateUsed.path);
+        // Force reload the image
+        forceImageReload(cacheBustedImageUrl);
 
-      // Generate certificate with proper template path
-      const certificateImage = await generateCertificate(certificateData, templateUsed.path);
-
-      // Create cache-busted URL for the generated certificate
-      const cacheBustedImageUrl = getCacheBustedImageUrl(certificateImage);
-      setGeneratedCertificate(cacheBustedImageUrl);
-
-      setSelectedCertificate({
-        ...certificate,
-        generated_image: cacheBustedImageUrl,
-        template_info: templateUsed
-      });
-
-      // Force reload the image
-      forceImageReload(cacheBustedImageUrl);
+        // Refresh list in background
+        loadCertificates();
+      } else {
+        throw new Error(result?.message || 'Failed to generate certificate');
+      }
 
     } catch (error) {
       console.error('Error generating certificate preview:', error);
@@ -1247,7 +1315,7 @@ const AdminCertificate = ({ onDataChange }) => {
             atc_code: certificate.atc_code,
             center_name: certificate.center_name || userData?.branch_name || userData?.name || 'SkillWallah EdTech',
             center_address: userData?.address || '',
-            photo_url: studentData.photo || studentData.profile_image,
+            photo_url: resolveStudentPhoto(studentData),  // Use photo resolution function
             template: certificate.template
           };
 

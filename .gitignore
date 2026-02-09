@@ -4,3 +4,9 @@ dist/
 build/
 # User generated content
 uploads/
+# Python
+__pycache__/
+*.pyc
+
+# Uploads / generated files
+Backend/uploads/

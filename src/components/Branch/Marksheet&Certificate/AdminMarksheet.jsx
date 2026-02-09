@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { FaFileAlt, FaPlus, FaEdit, FaTrash, FaSearch, FaEye, FaDownload, FaPrint, FaCalculator, FaChartBar, FaGraduationCap } from 'react-icons/fa';
+import React, { useState, useEffect, useRef } from 'react';
+import { FaFileAlt, FaPlus, FaEdit, FaTrash, FaSearch, FaEye, FaDownload, FaPrint, FaCalculator, FaChartBar, FaGraduationCap, FaUsers } from 'react-icons/fa';
 import { certificatesApi } from '../../../api/certificatesApi';
 import { generateMarksheet, printMarksheet, printBulkMarksheets, downloadMarksheet } from '../../../utils/marksheetGenerator';
 import { getUserData } from '../../../utils/authUtils';
@@ -11,14 +11,32 @@ const AdminMarksheet = () => {
   // Utility function to generate STRONGLY cache-busted image URLs (same as certificates)
   const getCacheBustedImageUrl = (imagePath) => {
     if (!imagePath) return null;
-    const cleanPath = imagePath.replace(/\\/g, '/');
+
+    // Clean the path
+    let cleanPath = imagePath.replace(/\\/g, '/');
+
+    // If it's a full URL, extract just the path part
+    if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+      try {
+        const url = new URL(cleanPath);
+        cleanPath = url.pathname.substring(1); // Remove leading slash
+      } catch (e) {
+        console.error('Invalid URL:', cleanPath);
+      }
+    }
+
+    // Remove any leading slashes
+    cleanPath = cleanPath.replace(/^\/+/, '');
+
     // Use current timestamp + random values to ensure uniqueness every time
     const timestamp = new Date().getTime();
     const randomId = Math.random().toString(36).substring(2, 15);
     const sessionId = Math.random().toString(36).substring(2, 10);
     const uniqueKey = Math.random().toString(36).substring(2, 12);
     const cacheBuster = `?cb=${timestamp}&v=${randomId}&sid=${sessionId}&uk=${uniqueKey}&nocache=true&_=${Date.now()}`;
-    const baseUrl = cleanPath.startsWith('http') ? cleanPath : `http://localhost:4000/${cleanPath}`;
+
+    // Always use API_BASE_URL for consistency
+    const baseUrl = `${API_BASE_URL}/${cleanPath}`;
     return `${baseUrl}${cacheBuster}`;
   };
 
@@ -34,6 +52,7 @@ const AdminMarksheet = () => {
   const [showModal, setShowModal] = useState(false);
   const [selectedMarksheet, setSelectedMarksheet] = useState(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
 
@@ -47,8 +66,8 @@ const AdminMarksheet = () => {
   const [selectedStudent, setSelectedStudent] = useState(null);
 
   // Template paths
-  const MARKSHEET_TEMPLATE_PATH = 'london_lms/uploads/Marksheet/marksheet.jpeg';
-  const MARKSHEET_OUTPUT_PATH = 'london_lms/uploads/Marksheet/generated';
+  const MARKSHEET_TEMPLATE_PATH = 'uploads/Marksheet/marksheet.jpeg';
+  const MARKSHEET_OUTPUT_PATH = 'uploads/Marksheet/generated';
 
   // Form state for marksheet creation/editing
   const [formData, setFormData] = useState({
@@ -115,6 +134,7 @@ const AdminMarksheet = () => {
   const [generatingMarksheet, setGeneratingMarksheet] = useState(false);
   const [selectedMarksheets, setSelectedMarksheets] = useState([]);
   const [selectAll, setSelectAll] = useState(false);
+  const [expandedRowId, setExpandedRowId] = useState(null);
 
   // Reset form function
   const resetForm = () => {
@@ -1020,6 +1040,16 @@ const AdminMarksheet = () => {
             console.log('📷 [MARKSHEET] Using photo URL from student data:', photoUrl);
           }
 
+          // Add cache-busting to photo URL to ensure fresh image is loaded
+          if (photoUrl && typeof photoUrl === 'string') {
+            // Remove any existing query parameters first
+            const basePhotoUrl = photoUrl.split('?')[0];
+            // Add unique timestamp to prevent caching
+            const cacheBuster = `?t=${Date.now()}&r=${Math.random().toString(36).substring(7)}`;
+            photoUrl = `${basePhotoUrl}${cacheBuster}`;
+            console.log('📷 [MARKSHEET] Photo URL with cache-busting:', photoUrl);
+          }
+
           console.log('📷 [MARKSHEET] Final photo URL for marksheet:', photoUrl);
 
           // Prepare marksheet data
@@ -1029,10 +1059,10 @@ const AdminMarksheet = () => {
             semester: parseInt(formData.semester),
             session_year: formData.session_year,
 
-            // Template information - FORCE USE OF UPLOADED TEMPLATE
-            template: 'marksheet-jpeg',
-            template_path: '/uploads/Marksheet/Marksheet.jpeg',
-            use_template: true,
+            // Template information - Use form data
+            template: formData.template || 'marksheet-fixed',
+            template_path: formData.template_path || MARKSHEET_TEMPLATE_PATH,
+            use_template: formData.use_uploaded_template !== undefined ? formData.use_uploaded_template : true,
 
             // Template fields
             student_name: formData.student_name,
@@ -1159,28 +1189,32 @@ const AdminMarksheet = () => {
     }
   };
 
-  // Handle preview marksheet - matches certificate logic exactly
+  // Handle preview marksheet - toggles inline view
   const handlePreview = async (marksheet) => {
     try {
-      console.log('📊 Opening marksheet preview for:', marksheet);
+      setPreviewError(false);
 
-      // Check if marksheet has a generated file from backend  
-      if (marksheet.file_path) {
-        // Always generate fresh cache busted URL for preview
-        console.log('📸 Marksheet file path:', marksheet.file_path);
-
-        setSelectedMarksheet({
-          ...marksheet,
-        });
-        setShowPreviewModal(true);
+      // Toggle logic: if already expanded, close it
+      if (expandedRowId === (marksheet.id || marksheet._id)) {
+        setExpandedRowId(null);
         return;
       }
 
-      // No generated file available
-      setSelectedMarksheet({
-        ...marksheet,
-      });
-      setShowPreviewModal(true);
+      console.log('📊 expanding marksheet row for:', marksheet);
+
+      // Expand the row
+      setExpandedRowId(marksheet.id || marksheet._id);
+
+      // Check if marksheet has a generated file from backend  
+      if (marksheet.file_path) {
+        console.log('📸 Marksheet file path exists:', marksheet.file_path);
+        // We just expanded the row, the render logic will handle the image display
+        return;
+      }
+
+      // If no file path, generate it first in INLINE mode
+      console.log('⚠️ No file path found, generating marksheet inline...');
+      await handleGenerateMarksheet(marksheet, true); // true = inline mode
 
     } catch (error) {
       console.error('Error opening marksheet preview:', error);
@@ -1219,7 +1253,7 @@ const AdminMarksheet = () => {
       const userData = getUserData();
       const branchData = {
         branchName: userData?.branch_name || 'SkillWallah EdTech',
-        template: MARKSHEET_TEMPLATE_PATH
+        template: marksheet.template_path || MARKSHEET_TEMPLATE_PATH
       };
 
       // Generate download using fixed template
@@ -1265,7 +1299,7 @@ const AdminMarksheet = () => {
       const userData = getUserData();
       const branchData = {
         branchName: userData?.branch_name || 'SkillWallah EdTech',
-        template: MARKSHEET_TEMPLATE_PATH
+        template: marksheet.template_path || MARKSHEET_TEMPLATE_PATH
       };
 
       // Generate print using fixed template
@@ -1334,8 +1368,12 @@ const AdminMarksheet = () => {
             result: marksheet.result
           };
 
-          // Generate using fixed template
-          const marksheetImage = await generateMarksheet(marksheetData, branchData);
+          // Generate using dynamic template if available
+          const specificBranchData = {
+            ...branchData,
+            template: marksheet.template_path || branchData.template
+          };
+          const marksheetImage = await generateMarksheet(marksheetData, specificBranchData);
           marksheetImages.push(marksheetImage);
         }
       }
@@ -1355,7 +1393,7 @@ const AdminMarksheet = () => {
   // Removed template upload functions - using fixed template only
 
   // Handle marksheet generation - exactly like certificate generation
-  const handleGenerateMarksheet = async (marksheet) => {
+  const handleGenerateMarksheet = async (marksheet, inlineMode = false) => {
     try {
       console.log('🎓 Generating marksheet for:', marksheet);
       setGeneratingMarksheet(true);
@@ -1373,6 +1411,7 @@ const AdminMarksheet = () => {
         ...marksheet,
         student_name: studentData.student_name || studentData.name,
         course_name: courseData.course_name || courseData.name,
+        // Force use of fixed template path
         template_path: MARKSHEET_TEMPLATE_PATH,
         output_path: MARKSHEET_OUTPUT_PATH
       };
@@ -1393,15 +1432,22 @@ const AdminMarksheet = () => {
 
         alert('Marksheet generated successfully!');
 
-        // Auto-preview the generated marksheet with fresh URL
-        setTimeout(() => {
-          setSelectedMarksheet({
-            ...marksheet,
-            ...result.marksheet,
-            file_path: result.marksheet.file_path
-          });
-          setShowPreviewModal(true);
-        }, 200);
+        // Auto-preview logic
+        if (!inlineMode) {
+          // Auto-preview the generated marksheet with fresh URL in MODAL if not inline
+          setTimeout(() => {
+            setSelectedMarksheet({
+              ...marksheet,
+              ...result.marksheet,
+              file_path: result.marksheet.file_path
+            });
+            setShowPreviewModal(true);
+          }, 200);
+        } else {
+          // If inline mode, simply update the state/list which will cause the expanded row to re-render with the new image
+          console.log('🔄 Inline generation complete, expanded row will update automatically via list refresh');
+        }
+
       } else {
         throw new Error(result.message || 'Failed to generate marksheet');
       }
@@ -1641,129 +1687,191 @@ const AdminMarksheet = () => {
                   </tr>
                 ) : (
                   currentItems.map((marksheet, index) => (
-                    <tr key={marksheet.id || marksheet._id} className="hover:bg-amber-50 transition-colors">
-                      <td className="px-4 py-4">
-                        <span className="text-sm font-medium text-secondary-900">
-                          {indexOfFirstItem + index + 1}.
-                        </span>
-                      </td>
+                    <React.Fragment key={marksheet.id || marksheet._id}>
+                      <tr className="hover:bg-amber-50 transition-colors">
+                        <td className="px-4 py-4">
+                          <span className="text-sm font-medium text-secondary-900">
+                            {indexOfFirstItem + index + 1}.
+                          </span>
+                        </td>
 
-                      <td className="px-4 py-4">
-                        <div className="space-y-1">
-                          <h3 className="text-sm font-semibold text-secondary-900">{marksheet.student_name || marksheet.studentName || '-'}</h3>
-                          <p className="text-xs text-amber-600 font-medium">{marksheet.student_registration || marksheet.registrationNumber || '-'}</p>
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <div className="space-y-1">
-                          <div className="text-sm font-medium text-secondary-900 max-w-xs">
-                            {marksheet.course_name || marksheet.courseName || '-'}
+                        <td className="px-4 py-4">
+                          <div className="space-y-1">
+                            <h3 className="text-sm font-semibold text-secondary-900">{marksheet.student_name || marksheet.studentName || '-'}</h3>
+                            <p className="text-xs text-amber-600 font-medium">{marksheet.student_registration || marksheet.registrationNumber || '-'}</p>
                           </div>
-                          <div className="text-xs text-purple-600">{marksheet.session_year || marksheet.programName || ''}</div>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="px-4 py-4 text-center">
-                        <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
-                          <FaGraduationCap className="w-3 h-3 mr-1" />
-                          Sem {marksheet.semester || '-'}
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-4 text-center">
-                        <div className="space-y-1">
-                          <div className="text-sm font-semibold text-gray-900">
-                            {marksheet.obtained_marks || marksheet.obtainedMarks || 0}/{marksheet.total_marks || marksheet.totalMarks || 0}
+                        <td className="px-4 py-4">
+                          <div className="space-y-1">
+                            <div className="text-sm font-medium text-secondary-900 max-w-xs">
+                              {marksheet.course_name || marksheet.courseName || '-'}
+                            </div>
+                            <div className="text-xs text-purple-600">{marksheet.session_year || marksheet.programName || ''}</div>
                           </div>
-                          <div className="text-xs text-amber-600 font-medium">
-                            {marksheet.percentage || 0}%
+                        </td>
+
+                        <td className="px-4 py-4 text-center">
+                          <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
+                            <FaGraduationCap className="w-3 h-3 mr-1" />
+                            Sem {marksheet.semester || '-'}
                           </div>
-                          <div className="w-full bg-gray-200 rounded-full h-1.5">
-                            <div
-                              className="bg-amber-500 h-1.5 rounded-full transition-all duration-300"
-                              style={{
-                                width: `${Math.min(marksheet.percentage || 0, 100)}%`
-                              }}
-                            ></div>
+                        </td>
+
+                        <td className="px-4 py-4 text-center">
+                          <div className="space-y-1">
+                            <div className="text-sm font-semibold text-gray-900">
+                              {marksheet.obtained_marks || marksheet.obtainedMarks || 0}/{marksheet.total_marks || marksheet.totalMarks || 0}
+                            </div>
+                            <div className="text-xs text-amber-600 font-medium">
+                              {marksheet.percentage || 0}%
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-1.5">
+                              <div
+                                className="bg-amber-500 h-1.5 rounded-full transition-all duration-300"
+                                style={{
+                                  width: `${Math.min(marksheet.percentage || 0, 100)}%`
+                                }}
+                              ></div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="px-4 py-4 text-center">
-                        <div className={`inline-flex items-center px-3 py-1 rounded text-xs font-medium ${getGradeColor(marksheet.grade || 'F')}`}>
-                          {marksheet.grade || '-'}
-                        </div>
-                      </td>
+                        <td className="px-4 py-4 text-center">
+                          <div className={`inline-flex items-center px-3 py-1 rounded text-xs font-medium ${getGradeColor(marksheet.grade || 'F')}`}>
+                            {marksheet.grade || '-'}
+                          </div>
+                        </td>
 
-                      <td className="px-4 py-4 text-center">
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getResultColor(marksheet.result || 'fail')}`}>
-                          {(marksheet.result || 'N/A').charAt(0).toUpperCase() + (marksheet.result || 'N/A').slice(1)}
-                        </span>
-                      </td>
+                        <td className="px-4 py-4 text-center">
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getResultColor(marksheet.result || 'fail')}`}>
+                            {(marksheet.result || 'N/A').charAt(0).toUpperCase() + (marksheet.result || 'N/A').slice(1)}
+                          </span>
+                        </td>
 
-                      <td className="px-4 py-4">
-                        <div className="flex items-center justify-center space-x-1">
-                          <button
-                            onClick={() => handlePreview(marksheet)}
-                            className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors"
-                            title="Preview"
-                          >
-                            <FaEye className="w-4 h-4" />
-                          </button>
+                        <td className="px-4 py-4">
+                          <div className="flex items-center justify-center space-x-1">
+                            <button
+                              onClick={() => handlePreview(marksheet)}
+                              className={`p-1.5 rounded transition-colors ${expandedRowId === (marksheet.id || marksheet._id) ? 'bg-amber-100 text-amber-700 ring-2 ring-amber-400' : 'text-amber-600 hover:bg-amber-50'}`}
+                              title={expandedRowId === (marksheet.id || marksheet._id) ? "Close Preview" : "Preview"}
+                            >
+                              <FaEye className="w-4 h-4" />
+                            </button>
 
-                          <button
-                            onClick={() => handleEdit(marksheet)}
-                            className="p-1.5 text-yellow-600 hover:bg-yellow-50 rounded transition-colors"
-                            title="Edit"
-                          >
-                            <FaEdit className="w-4 h-4" />
-                          </button>
+                            <button
+                              onClick={() => handleEdit(marksheet)}
+                              className="p-1.5 text-yellow-600 hover:bg-yellow-50 rounded transition-colors"
+                              title="Edit"
+                            >
+                              <FaEdit className="w-4 h-4" />
+                            </button>
 
-                          <button
-                            onClick={() => handleGenerateMarksheet(marksheet)}
-                            className="p-1.5 text-orange-600 hover:bg-orange-50 rounded transition-colors"
-                            title="Generate Marksheet"
-                          >
-                            <FaFileAlt className="w-4 h-4" />
-                          </button>
+                            <button
+                              onClick={() => handleGenerateMarksheet(marksheet)}
+                              className="p-1.5 text-orange-600 hover:bg-orange-50 rounded transition-colors"
+                              title="Regenerate Marksheet"
+                            >
+                              <FaFileAlt className="w-4 h-4" />
+                            </button>
 
-                          {marksheet.status === 'published' && (
-                            <>
-                              <button
-                                className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors"
-                                title="Download"
-                              >
-                                <FaDownload className="w-4 h-4" />
-                              </button>
+                            {marksheet.status === 'published' && (
+                              <>
+                                <button
+                                  className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                                  title="Download"
+                                >
+                                  <FaDownload className="w-4 h-4" />
+                                </button>
 
-                              <button
-                                className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors"
-                                title="Print"
-                              >
-                                <FaPrint className="w-4 h-4" />
-                              </button>
+                                <button
+                                  className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                                  title="Print"
+                                >
+                                  <FaPrint className="w-4 h-4" />
+                                </button>
 
-                              <button
-                                onClick={() => handleGenerateMarksheet(marksheet)}
-                                className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors"
-                                title="Generate Marksheet with Template"
-                              >
-                                <span className="w-4 h-4 text-xs">📄</span>
-                              </button>
-                            </>
-                          )}
+                                <button
+                                  onClick={() => handleGenerateMarksheet(marksheet)}
+                                  className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                                  title="Generate Marksheet with Template"
+                                >
+                                  <span className="w-4 h-4 text-xs">📄</span>
+                                </button>
+                              </>
+                            )}
 
-                          <button
-                            onClick={() => handleDelete(marksheet.id)}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                            title="Delete"
-                          >
-                            <FaTrash className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                            <button
+                              onClick={() => handleDelete(marksheet.id)}
+                              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                              title="Delete"
+                            >
+                              <FaTrash className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {/* Expanded Row for Inline Preview */}
+                      {(expandedRowId === (marksheet.id || marksheet._id)) && (
+                        <tr className="bg-gray-50 border-b border-gray-200 animate-fadeIn">
+                          <td colSpan="8" className="p-4">
+                            <div className="bg-white rounded-lg shadow-inner border border-gray-200 p-4 relative">
+                              <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                                <FaEye className="mr-2 text-amber-500" />
+                                Marksheet Preview: {marksheet.student_name}
+                              </h4>
+                              <div className="flex justify-center bg-gray-100 rounded-lg p-2 min-h-[300px] items-center">
+                                {marksheet.file_path ? (
+                                  <div className="relative group">
+                                    <img
+                                      src={getCacheBustedImageUrl(marksheet.file_path)}
+                                      alt="Marksheet Preview"
+                                      className="max-w-2xl w-full h-auto shadow-lg rounded border border-gray-300 transition-transform duration-300 transform group-hover:scale-[1.02]"
+                                      onError={(e) => {
+                                        console.error('Failed to load marksheet image:', marksheet.file_path);
+                                        e.target.onerror = null;
+                                        e.target.style.display = 'none';
+                                        const errorDiv = document.createElement('div');
+                                        errorDiv.className = 'text-center p-4 text-red-500';
+                                        errorDiv.innerHTML = 'Failed to load image. <br/><button onclick="window.location.reload()" class="text-blue-500 underline mt-2">Retry</button>';
+                                        e.target.parentElement.appendChild(errorDiv);
+                                      }}
+                                    />
+                                    <div className="absolute top-2 right-2 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <a href={getCacheBustedImageUrl(marksheet.file_path)} target="_blank" rel="noopener noreferrer" className="bg-white p-2 rounded-full shadow-md hover:bg-gray-100 text-gray-700" title="Open in new tab">
+                                        <FaEye />
+                                      </a>
+                                      <button onClick={() => handleDownload(marksheet)} className="bg-white p-2 rounded-full shadow-md hover:bg-gray-100 text-blue-600" title="Download">
+                                        <FaDownload />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="text-center py-10">
+                                    {generatingMarksheet ? (
+                                      <div className="flex flex-col items-center">
+                                        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-amber-600 mb-3"></div>
+                                        <p className="text-gray-600 font-medium">Generating Marksheet Preview...</p>
+                                      </div>
+                                    ) : (
+                                      <div className="text-gray-500">
+                                        <p className="mb-2">Preview not available.</p>
+                                        <button
+                                          onClick={() => handleGenerateMarksheet(marksheet, true)}
+                                          className="px-4 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 transition"
+                                        >
+                                          Generate Now
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))
                 )}
               </tbody>
@@ -2528,7 +2636,7 @@ const AdminMarksheet = () => {
 
             {/* Marksheet Preview */}
             <div className="px-6 py-8">
-              {selectedMarksheet?.file_path ? (
+              {selectedMarksheet?.file_path && !previewError ? (
                 // Show actual generated marksheet image - always use fresh cache-busted URL
                 <div className="text-center">
                   <img
@@ -2536,25 +2644,32 @@ const AdminMarksheet = () => {
                     src={getCacheBustedImageUrl(selectedMarksheet.file_path)}
                     alt="Marksheet Preview"
                     className="max-w-full h-auto border border-gray-300 rounded-lg shadow-lg"
-                    onError={(e) => {
-                      console.error('❌ Image load failed:', e.target.src);
-                      e.target.style.display = 'none';
-                      e.target.nextSibling?.classList?.remove('hidden');
-                    }}
+                    onError={() => setPreviewError(true)}
                   />
-                  <div className="hidden text-center py-12">
-                    <div className="text-gray-400 text-6xl mb-4">📄</div>
-                    <h3 className="text-xl font-semibold text-gray-700 mb-2">Image Load Failed</h3>
-                    <p className="text-gray-500 mb-4">Could not load the marksheet image.</p>
-                  </div>
                 </div>
               ) : (
-                // No preview available message
-                <div className="text-center py-12">
-                  <div className="text-gray-400 text-6xl mb-4">📄</div>
-                  <h3 className="text-xl font-semibold text-gray-700 mb-2">No Preview Available</h3>
-                  <p className="text-gray-500 mb-4">Marksheet file not generated yet.</p>
-                  <p className="text-sm text-gray-400">Use the "Generate" button to create the marksheet file first.</p>
+                // Fallback when file is missing
+                <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 mb-4">
+                    <FaFileAlt className="h-6 w-6 text-gray-400" />
+                  </div>
+                  <h3 className="mt-2 text-sm font-semibold text-gray-900">Preview Not Available</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    The marksheet image has not been generated yet.
+                  </p>
+                  <div className="mt-6">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPreviewModal(false);
+                        handleGenerateMarksheet(selectedMarksheet);
+                      }}
+                      className="inline-flex items-center rounded-md bg-amber-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600"
+                    >
+                      <FaFileAlt className="-ml-0.5 mr-1.5 h-5 w-5" aria-hidden="true" />
+                      Generate Marksheet
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

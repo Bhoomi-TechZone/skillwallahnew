@@ -574,7 +574,8 @@ async def upload_student_photo(
             buffer.write(file_content)
         
         # Update student document with tenant-safe photo URL
-        photo_url = f"/static/uploads/student_photos/{context['franchise_code']}/{context['branch_code']}/{unique_filename}"
+        # Use /uploads/ path (not /static/uploads/) to match frontend expectations
+        photo_url = f"/uploads/student_photos/{context['franchise_code']}/{context['branch_code']}/{unique_filename}"
         
         # Ensure tenant isolation in update
         update_data = {
@@ -762,7 +763,10 @@ async def get_branch_students(
                     "city": student.get("city"),
                     "state": student.get("state"),
                     "pincode": student.get("pincode"),
-                    "photo": student.get("photo"),
+                    "photo": student.get("photo") or student.get("photo_url"),
+                    "photo_url": student.get("photo_url") or student.get("photo"),
+                    "student_photo": student.get("student_photo") or student.get("photo_url") or student.get("photo"),
+                    "profile_image": student.get("profile_image") or student.get("photo_url") or student.get("photo"),
                     "center": student.get("center"),
                     "course_duration": student.get("course_duration"),
                     # ID Card information
@@ -778,6 +782,7 @@ async def get_branch_students(
                         "issue_date": id_card.get("issue_date"),
                         "expiry_date": id_card.get("expiry_date"),
                         "file_path": id_card.get("file_path"),
+                        "student_photo_url": id_card.get("student_photo_url") or id_card.get("photo_url"),
                         "created_at": id_card.get("created_at").isoformat() if id_card.get("created_at") else None
                     }
                 
