@@ -17,6 +17,9 @@ const StudentResults = () => {
   const [selectedSubject, setSelectedSubject] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedResult, setSelectedResult] = useState(null);
+  const [showCertificatePreview, setShowCertificatePreview] = useState(false);
+  const [previewCertificate, setPreviewCertificate] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [certificateStatus, setCertificateStatus] = useState({
     unlocked: true,
     progress: 85,
@@ -390,24 +393,65 @@ const StudentResults = () => {
       loadingToast.className = 'fixed top-4 right-4 bg-orange-500 text-white px-4 py-2 rounded shadow-lg z-50';
       document.body.appendChild(loadingToast);
 
-      const response = await axios.get(`${API_BASE_URL}/api/students/download-certificate`, {
+      // First, get the certificate ID for the current student
+      const studentId = getUserData()?.user_id || getUserData()?.student_id || getUserData()?.id;
+      
+      // Fetch certificates to get the certificate ID
+      const certResponse = await axios.get(`${API_BASE_URL}/api/branch/certificates`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        responseType: 'blob'
+        params: {
+          student_id: studentId
+        }
       });
 
-      // Create blob and download
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `Certificate_${studentName || 'Student'}_${new Date().toISOString().split('T')[0]}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      if (certResponse.data && (certResponse.data.certificates || certResponse.data.data || Array.isArray(certResponse.data))) {
+        let certificates = [];
+        if (certResponse.data.certificates) {
+          certificates = certResponse.data.certificates;
+        } else if (certResponse.data.data) {
+          certificates = certResponse.data.data;
+        } else if (Array.isArray(certResponse.data)) {
+          certificates = certResponse.data;
+        }
+
+        // Filter for generated/issued certificates
+        const generatedCertificates = certificates.filter(cert => 
+          cert.status === 'generated' || cert.status === 'issued'
+        );
+        
+        if (generatedCertificates.length > 0) {
+          // Get the most recent certificate
+          const latestCertificate = generatedCertificates.sort((a, b) => 
+            new Date(b.created_at || b.createdAt) - new Date(a.created_at || a.createdAt)
+          )[0];
+          
+          // Download using the correct branch certificate endpoint
+          const downloadResponse = await axios.get(`${API_BASE_URL}/api/branch/certificates/${latestCertificate._id || latestCertificate.id}/download`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            },
+            responseType: 'blob'
+          });
+
+          // Create blob and download
+          const blob = new Blob([downloadResponse.data], { type: 'image/png' });
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `Certificate_${studentName || 'Student'}_${latestCertificate.certificate_number || Date.now()}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } else {
+          throw new Error('No generated certificates found for download');
+        }
+      } else {
+        throw new Error('No certificates found for this student');
+      }
 
       document.body.removeChild(loadingToast);
 
@@ -427,10 +471,86 @@ const StudentResults = () => {
 
       // Show error message
       const errorToast = document.createElement('div');
-      errorToast.innerHTML = 'Failed to download certificate. Please try again later.';
+      errorToast.innerHTML = `Failed to download certificate: ${error.message}. Please try again later.`;
       errorToast.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded shadow-lg z-50';
       document.body.appendChild(errorToast);
       setTimeout(() => document.body.removeChild(errorToast), 5000);
+    }
+  };
+
+  // New function to preview certificate
+  const handlePreviewCertificate = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        alert('Please login to view certificate');
+        return;
+      }
+
+      // Check if certificate is unlocked
+      if (!certificateStatus?.unlocked) {
+        alert('Certificate is not yet available. Complete more requirements to unlock it.');
+        return;
+      }
+
+      setPreviewLoading(true);
+      setPreviewCertificate(null);
+      setShowCertificatePreview(true);
+
+      // Use the working branch certificates endpoint that you confirmed works
+      const response = await axios.get(`${API_BASE_URL}/api/branch/certificates`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        params: {
+          // Filter by current student - using student_id from user data
+          student_id: getUserData()?.user_id || getUserData()?.student_id || getUserData()?.id
+        }
+      });
+
+      console.log('Certificate API Response:', response.data);
+
+      if (response.data && (response.data.certificates || response.data.data || Array.isArray(response.data))) {
+        // Handle different response formats
+        let certificates = [];
+        if (response.data.certificates) {
+          certificates = response.data.certificates;
+        } else if (response.data.data) {
+          certificates = response.data.data;
+        } else if (Array.isArray(response.data)) {
+          certificates = response.data;
+        }
+
+        // Filter for generated/issued certificates
+        const generatedCertificates = certificates.filter(cert => 
+          cert.status === 'generated' || cert.status === 'issued'
+        );
+        
+        if (generatedCertificates.length > 0) {
+          // Sort by creation date to get the most recent
+          const latestCertificate = generatedCertificates.sort((a, b) => 
+            new Date(b.created_at || b.createdAt) - new Date(a.created_at || a.createdAt)
+          )[0];
+          
+          console.log('Latest certificate found:', latestCertificate);
+          setPreviewCertificate(latestCertificate);
+        } else {
+          throw new Error('No generated certificates found for this student');
+        }
+      } else {
+        throw new Error('No certificates found in response');
+      }
+
+    } catch (error) {
+      console.error('Certificate preview failed:', error);
+      
+      // Show error message instead of fallback
+      setPreviewCertificate(null);
+      alert(`Unable to load certificate preview: ${error.message}. Please try again later or contact support.`);
+      setShowCertificatePreview(false);
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -793,10 +913,18 @@ const StudentResults = () => {
             <button
               onClick={handleDownloadCertificate}
               disabled={!certificateStatus?.unlocked}
-              className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center w-full"
+              className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center w-full mb-2"
             >
               <span className="mr-2">🎓</span>
-              Certificate
+              Download Certificate
+            </button>
+            <button
+              onClick={handlePreviewCertificate}
+              disabled={!certificateStatus?.unlocked}
+              className="flex-1 bg-purple-500 hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center w-full"
+            >
+              <span className="mr-2">👁️</span>
+              Preview Certificate
             </button>
           </div>
 
@@ -1019,6 +1147,124 @@ const StudentResults = () => {
               >
                 Print Result
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Certificate Preview Modal */}
+      {showCertificatePreview && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-2xl transform transition-all duration-300">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-purple-600 to-orange-600 text-white p-6 rounded-t-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold">Certificate Preview</h2>
+                  <p className="text-purple-100 mt-1">View your certificate before downloading</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowCertificatePreview(false);
+                    setPreviewCertificate(null);
+                    setPreviewLoading(false);
+                  }}
+                  className="text-white hover:text-gray-300 text-3xl font-light transition-colors"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6">
+              {previewLoading ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
+                  <p className="text-gray-600">Loading certificate preview...</p>
+                </div>
+              ) : previewCertificate ? (
+                <div className="text-center">
+                  {previewCertificate.file_path ? (
+                    // Display the actual generated certificate
+                    <div>
+                      <img
+                        src={`${API_BASE_URL}/${previewCertificate.file_path.replace(/\\/g, '/')}`}
+                        alt="Certificate Preview"
+                        className="mx-auto max-w-full h-auto rounded-lg shadow-lg border border-gray-200"
+                        onError={(e) => {
+                          console.error('Certificate image failed to load:', e.target.src);
+                          // Show download option when image fails
+                          e.target.style.display = 'none';
+                          const errorMsg = e.target.nextSibling;
+                          errorMsg.style.display = 'block';
+                        }}
+                      />
+                      {/* Error message when image fails */}
+                      <div style={{ display: 'none' }} className="text-center py-12">
+                        <div className="text-6xl mb-4">⚠️</div>
+                        <p className="text-red-600 text-lg font-semibold">Certificate preview not available</p>
+                        <p className="text-gray-600 mt-2">You can still download your certificate</p>
+                        <p className="text-sm text-gray-500 mt-1">File: {previewCertificate.file_path}</p>
+                        <div className="mt-6 flex justify-center gap-4">
+                          <button
+                            onClick={() => {
+                              setShowCertificatePreview(false);
+                              handleDownloadCertificate();
+                            }}
+                            className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors flex items-center"
+                          >
+                            <span className="mr-2">⬇️</span>
+                            Download Certificate
+                          </button>
+                          <button
+                            onClick={() => setShowCertificatePreview(false)}
+                            className="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors"
+                          >
+                            Close
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    // If no file_path, show error
+                    <div className="text-center py-12">
+                      <div className="text-6xl mb-4">⚠️</div>
+                      <p className="text-red-600 text-lg font-semibold">Certificate not available</p>
+                      <p className="text-gray-600 mt-2">This certificate doesn't have a generated file</p>
+                      <p className="text-sm text-gray-500 mt-1">Certificate ID: {previewCertificate.certificate_number}</p>
+                    </div>
+                  )}
+                  
+                  {/* Action Buttons */}
+                  <div className="mt-6 flex justify-center gap-4">
+                    <button
+                      onClick={() => {
+                        setShowCertificatePreview(false);
+                        setPreviewCertificate(null);
+                        handleDownloadCertificate();
+                      }}
+                      className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors flex items-center"
+                    >
+                      <span className="mr-2">⬇️</span>
+                      Download Certificate
+                    </button>
+                    <button
+                      onClick={() => window.print()}
+                      className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors flex items-center"
+                    >
+                      <span className="mr-2">🖨️</span>
+                      Print Certificate
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <div className="text-6xl mb-4">⚠️</div>
+                  <p className="text-gray-600 text-lg">Unable to load certificate preview</p>
+                  <p className="text-gray-500 mt-2">Please try again or contact support</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

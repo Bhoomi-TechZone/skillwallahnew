@@ -84,7 +84,7 @@ const StudentTestAttempt = ({ testId: propTestId, onBack }) => {
           numberOfQuestions: numQuestions,
           perQuestionMark: testData.perQuestionMark || 1,
           minusMarking: testData.minusMarking || 0,
-          courseName: testData.courseName || testData.course || ''
+          courseName: testData.courseName || testData.course || testData.subject || ''
         });
         setTimeRemaining(duration * 60); // Convert minutes to seconds
       }
@@ -92,17 +92,20 @@ const StudentTestAttempt = ({ testId: propTestId, onBack }) => {
       // Load questions - try multiple approaches
       let questionsResponse;
       let loadedQuestions = [];
-      const paperSetId = testData?.id || testData?._id || testId;
-
+      // Try to get the paper_set_id from multiple possible locations
+      const paperSetId = testData?.paperSetId || testData?.paper_set_id || testData?.id || testData?._id || testId;
+      
       console.log('🔍 Loading questions for paper set ID:', paperSetId);
       console.log('📋 Test data:', testData);
+      console.log('📋 Course from test data:', testData?.course);
+      console.log('📋 Subject from test data:', testData?.subject);
 
       // Approach 1: Try to load by paper_set_id
       // Always try this first if we have an ID, as it's the most reliable way to get questions for a specific paper
       if (paperSetId) {
         try {
-          // Try both query params as backend might use either
-          const queryParam = testData?.paperSetId ? `paper_set_id=${paperSetId}` : `paperId=${paperSetId}`;
+          // Try both query params, preferring paper_set_id as it is the standard
+          const queryParam = `paper_set_id=${paperSetId}`;
           console.log(`🔍 Fetching questions with query: ${queryParam}`);
 
           questionsResponse = await axios.get(
@@ -115,6 +118,8 @@ const StudentTestAttempt = ({ testId: propTestId, onBack }) => {
 
           // If we got questions, filter them to ensure they match the paper set
           if (potentialQuestions.length > 0) {
+            console.log(`📝 API returned ${potentialQuestions.length} questions`);
+
             // In case API returns all questions despite filter
             const filtered = potentialQuestions.filter(q =>
               (q.paper_set_id === paperSetId) ||
@@ -123,12 +128,13 @@ const StudentTestAttempt = ({ testId: propTestId, onBack }) => {
             );
 
             // If filtering resulted in match, use them. 
-            // If filtering removed all (maybe field name mismatch), trust the API response if it wasn't the full list
             if (filtered.length > 0) {
               loadedQuestions = filtered;
-            } else if (potentialQuestions.length < 50) {
-              // If we got a small number of questions back, assume they are the right ones 
-              // even if we can't match the ID field in frontend
+            } else if (potentialQuestions.length > 0) {
+              // matched no IDs, but we implicitly trust the backend if it listened to our filter
+              // Use them if they look like they belong to this paper (heuristic could be added)
+              // checking if returned count matches expected count
+              console.warn('⚠️ Frontend filter removed all questions, but using API response as fallback');
               loadedQuestions = potentialQuestions;
             }
           }
@@ -181,11 +187,73 @@ const StudentTestAttempt = ({ testId: propTestId, onBack }) => {
           console.log('⚠️ Failed to load by IDs:', e.message);
         }
       }
+      
+      // Approach 4: If no questions found and we have course information, load by course
+      if (loadedQuestions.length === 0 && testData?.course) {
+        try {
+          console.log('🔍 Attempting to load questions by course:', testData.course);
+          questionsResponse = await axios.get(
+            `${API_BASE_URL}/api/questions/?page=1&limit=100&course=${encodeURIComponent(testData.course)}`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          
+          const courseQuestions = Array.isArray(questionsResponse.data) ? questionsResponse.data :
+            (questionsResponse.data.questions || []);
+          
+          if (courseQuestions.length > 0) {
+            loadedQuestions = courseQuestions;
+            console.log('✅ Loaded', courseQuestions.length, 'questions by course');
+            
+            // Update paper set if needed to reflect the course
+            if (!paperSet || !paperSet.courseName) {
+              setPaperSet(prev => ({
+                ...prev,
+                courseName: testData.course,
+                paperName: `${testData.course} Test`,
+                numberOfQuestions: courseQuestions.length
+              }));
+            }
+          } else {
+            console.log('⚠️ No questions found for course:', testData.course);
+          }
+        } catch (e) {
+          console.log('⚠️ Failed to load by course:', e.message);
+        }
+      }
+      
+      // Approach 5: If no questions found and we have subject information, load by subject
+      if (loadedQuestions.length === 0 && testData?.subject) {
+        try {
+          console.log('🔍 Attempting to load questions by subject:', testData.subject);
+          questionsResponse = await axios.get(
+            `${API_BASE_URL}/api/questions/?page=1&limit=100&subject=${encodeURIComponent(testData.subject)}`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          
+          const subjectQuestions = Array.isArray(questionsResponse.data) ? questionsResponse.data :
+            (questionsResponse.data.questions || []);
+          
+          if (subjectQuestions.length > 0) {
+            loadedQuestions = subjectQuestions;
+            console.log('✅ Loaded', subjectQuestions.length, 'questions by subject');
+            
+            // Update paper set if needed to reflect the subject
+            if (!paperSet || !paperSet.courseName) {
+              setPaperSet(prev => ({
+                ...prev,
+                courseName: testData.subject,
+                paperName: `${testData.subject} Test`,
+                numberOfQuestions: subjectQuestions.length
+              }));
+            }
+          } else {
+            console.log('⚠️ No questions found for subject:', testData.subject);
+          }
+        } catch (e) {
+          console.log('⚠️ Failed to load by subject:', e.message);
+        }
+      }
 
-      console.log('✅ Final loaded questions:', loadedQuestions.length);
-      console.log('📊 First question structure:', loadedQuestions[0]);
-      console.log('📊 First question keys:', loadedQuestions[0] ? Object.keys(loadedQuestions[0]) : []);
-      console.log('📊 First question options:', loadedQuestions[0]?.options);
       setQuestions(loadedQuestions);
 
       // Update paper set with actual question count
@@ -332,6 +400,17 @@ const StudentTestAttempt = ({ testId: propTestId, onBack }) => {
     );
   }
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading questions...</p>
+        </div>
+      </div>
+    );
+  }
+  
   if (!paperSet || questions.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">

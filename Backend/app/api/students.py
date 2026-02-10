@@ -712,13 +712,69 @@ async def download_student_certificate(request: Request, current_user: dict = De
             raise HTTPException(status_code=403, detail="Certificate is not yet available. Complete requirements to unlock it.")
         
         file_path = certificate.get("file_path")
+        
+        # If file_path doesn't exist or file doesn't exist, try to generate it on-demand
+        if not file_path or not os.path.exists(file_path):
+            logger.info(f"[STUDENT-CERTIFICATE] Certificate file not found, attempting to generate on-demand for certificate ID: {certificate.get('_id')}")
+            
+            try:
+                from app.services.certificate_service import generate_certificate_image
+                import os
+                from datetime import datetime
+                
+                # Create file path
+                cert_dir = os.path.join("uploads", "Certificate", "generated")
+                os.makedirs(cert_dir, exist_ok=True)
+                new_file_path = os.path.join(cert_dir, f"certificate_{certificate.get('certificate_number', 'unknown')}.png")
+                
+                # Prepare certificate data for regeneration
+                cert_data = {
+                    "student_name": certificate.get("student_name", "Student"),
+                    "student_registration": str(certificate.get("student_id", "unknown")),
+                    "course_name": certificate.get("course_name", "Course"),
+                    "course_duration": certificate.get("course_duration", "N/A"),
+                    "certificate_number": certificate.get("certificate_number", "CERT-001"),
+                    "certificate_type": certificate.get("certificate_type", "completion"),
+                    "grade": certificate.get("grade", "A"),
+                    "issue_date": certificate.get("completion_date") or certificate.get("issued_on"),
+                    "completion_date": certificate.get("completion_date") or certificate.get("issued_on"),
+                    "start_date": None,
+                    "father_name": "",
+                    "date_of_birth": "",
+                    "percentage": certificate.get("score", 100),
+                    "atc_code": "",
+                    "center_name": certificate.get("center_name", "SkillWallah EdTech"),
+                    "center_address": "",
+                    "photo_url": None,
+                    "sr_number": "",
+                    "mca_registration_number": "U85300UP2020NPL136478"
+                }
+                
+                # Generate the certificate
+                success = await generate_certificate_image(cert_data, new_file_path)
+                
+                if success and os.path.exists(new_file_path):
+                    # Update the certificate document with the new file path
+                    db.certificates.update_one(
+                        {"_id": certificate["_id"]},
+                        {"$set": {"file_path": new_file_path}}
+                    )
+                    file_path = new_file_path
+                    logger.info(f"[STUDENT-CERTIFICATE] Successfully generated certificate file: {new_file_path}")
+                else:
+                    raise Exception("Failed to generate certificate file")
+                    
+            except Exception as gen_error:
+                logger.error(f"[STUDENT-CERTIFICATE] Error generating certificate on-demand: {str(gen_error)}")
+                raise HTTPException(status_code=500, detail=f"Failed to generate certificate file: {str(gen_error)}")
+        
         if not file_path or not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail="Certificate file not found")
         
         return FileResponse(
             path=file_path,
-            filename=f"certificate_{certificate.get('certificate_number', 'student')}.pdf",
-            media_type="application/pdf"
+            filename=f"certificate_{certificate.get('certificate_number', 'student')}.png",
+            media_type="image/png"
         )
         
     except HTTPException:

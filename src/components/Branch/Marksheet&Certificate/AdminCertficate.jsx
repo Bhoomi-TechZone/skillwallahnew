@@ -157,7 +157,11 @@ const AdminCertificate = ({ onDataChange }) => {
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [selectedCertificate, setSelectedCertificate] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lastSubmitTime, setLastSubmitTime] = useState(null);
+  const [recentlyGenerated, setRecentlyGenerated] = useState(new Set());
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [showSuccessPopup, setShowSuccessPopup] = useState(false);
+  const [successData, setSuccessData] = useState(null);
 
   // Dropdown data from backend
   const [students, setStudents] = useState([]);
@@ -394,10 +398,6 @@ const AdminCertificate = ({ onDataChange }) => {
       }
 
       const data = await response.json();
-      console.log('📊 Students API Response (raw):', data);
-      console.log('📊 Response type:', typeof data);
-      console.log('📊 Response keys:', Object.keys(data));
-
       let studentsData = [];
 
       // Handle different response formats
@@ -655,14 +655,57 @@ const AdminCertificate = ({ onDataChange }) => {
   };
 
   // Handle create certificate form submission
-  const handleCreateCertificate = async (e) => {
-    e.preventDefault();
+  const handleCreateCertificate = async () => {
     try {
+      // Prevent duplicate submissions
+      if (isSubmitting) {
+        console.log('⚠️ Certificate creation already in progress, ignoring duplicate request');
+        return;
+      }
+      
+      // Add timestamp-based debounce (prevent clicks within 2 seconds)
+      const now = Date.now();
+      if (lastSubmitTime && (now - lastSubmitTime) < 2000) {
+        console.log('⚠️ Too many rapid clicks, please wait...');
+        return;
+      }
+      
+      // Validate required fields before submission
+      if (!formData.student_id || !formData.course_id || !formData.grade || !formData.cgpa || 
+          !formData.duration || !formData.atc_code || !formData.center_name || !formData.photograph) {
+        console.log('⚠️ Missing required fields');
+        alert('Please fill in all required fields before generating certificate');
+        return;
+      }
+      
+      // Check if this student-course combination was recently generated (within 5 seconds)
+      const comboKey = `${formData.student_id}-${formData.course_id}`;
+      if (recentlyGenerated.has(comboKey)) {
+        console.log('⚠️ This certificate was recently generated, please wait...');
+        alert('This certificate was recently generated. Please wait a moment before trying again.');
+        return;
+      }
+      
       setIsSubmitting(true);
-
+      setLastSubmitTime(now);
+      
       // Get selected student data
       const selectedStudentData = students.find(s => (s.id || s._id) === formData.student_id);
       const selectedCourseData = courses.find(c => (c.id || c._id) === formData.course_id);
+      
+      // Check if certificate already exists for this student-course combination
+      const existingCertificate = certificates.find(cert => 
+        cert.student_id === formData.student_id && 
+        cert.course_id === formData.course_id &&
+        (cert.status === 'generated' || cert.status === 'issued')
+      );
+      
+      if (existingCertificate) {
+        console.log('⚠️ Certificate already exists for this student and course:', existingCertificate);
+        alert(`A certificate already exists for ${selectedStudentData?.student_name || selectedStudentData?.name} in ${selectedCourseData?.course_name || selectedCourseData?.name}. Certificate ID: ${existingCertificate.certificate_number}`);
+        setIsSubmitting(false);
+        return;
+      }
 
       // Use fixed template path only
       const selectedTemplate = {
@@ -783,25 +826,55 @@ const AdminCertificate = ({ onDataChange }) => {
         }
       }
 
-      // Add photo URL to certificate data
+      // Auto-generate SR Number (Serial Number) with unique format
+      const autoSrNumber = `SR${Date.now().toString().slice(-8)}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      console.log('🔢 Auto-generated SR Number:', autoSrNumber);
+
+      // Add photo URL and SR number to certificate data
       if (photoUrl) {
         certificateData.photo_url = photoUrl;
+        certificateData.student_photo = photoUrl; // Store in student_photo field as well
+        console.log('📸 Student photo stored in certificate data:', photoUrl);
       }
+
+      // Override sr_number with auto-generated value
+      certificateData.sr_number = autoSrNumber;
+      console.log('🔢 SR Number added to certificate data:', autoSrNumber);
 
       const result = await certificatesApi.generateCertificate(certificateData);
       console.log('✅ Certificate creation result:', result);
+      
+      // Check if backend returned duplicate certificate error
+      if (result?.error?.includes('duplicate') || result?.message?.includes('already exists')) {
+        console.log('⚠️ Backend reported duplicate certificate');
+        alert('A certificate already exists for this student and course. Please check the certificates list.');
+        setIsSubmitting(false);
+        return;
+      }
 
-      // Show success message with enhanced feedback
-      const successMessage = `✅ New Certificate Generated Successfully! 
-      Student: ${selectedStudentData.student_name || selectedStudentData.name}
-      Time: ${new Date().toLocaleTimeString()}
-      Unique ID: ${certificateData.unique_id}`;
-      showMessage('success', successMessage);
-
-      // Keep modal open briefly to show success, then close
+      // Add this combination to recently generated set
+      setRecentlyGenerated(prev => new Set(prev).add(comboKey));
+      
+      // Clean up the tracking after 5 seconds
       setTimeout(() => {
-        setShowCreateModal(false);
-      }, 2000); // 2 second delay to show success message
+        setRecentlyGenerated(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(comboKey);
+          return newSet;
+        });
+      }, 5000);
+      
+      // Show success popup
+      setSuccessData({
+        studentName: selectedStudentData.student_name || selectedStudentData.name,
+        courseName: selectedCourseData.course_name || selectedCourseData.name,
+        certificateNumber: result.certificate?.certificate_number || certificateData.certificate_number,
+        timestamp: new Date().toLocaleString('en-IN')
+      });
+      setShowSuccessPopup(true);
+
+      // Close create modal immediately
+      setShowCreateModal(false);
 
       // Reset form
       resetForm();
@@ -2211,7 +2284,7 @@ const AdminCertificate = ({ onDataChange }) => {
                   ) : (
                     <FaCertificate className="w-4 h-4" />
                   )}
-                  <span>{isSubmitting ? (editingCertificate ? 'Updating...' : 'Creating...') : (editingCertificate ? 'Update Certificate' : 'Create Certificate')}</span>
+                  <span>{isSubmitting ? (editingCertificate ? 'Updating Certificate...' : 'Generating Certificate...') : (editingCertificate ? 'Update Certificate' : 'Generate Certificate')}</span>
                 </button>
               </div>
             </form>
@@ -2393,6 +2466,69 @@ const AdminCertificate = ({ onDataChange }) => {
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Popup Modal */}
+      {showSuccessPopup && successData && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60] animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md transform animate-scaleIn">
+            {/* Success Icon */}
+            <div className="bg-gradient-to-r from-green-500 to-emerald-500 rounded-t-2xl p-6 text-center">
+              <div className="mx-auto w-20 h-20 bg-white rounded-full flex items-center justify-center mb-4 animate-bounce">
+                <svg className="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path>
+                </svg>
+              </div>
+              <h2 className="text-2xl font-bold text-white">Certificate Generated Successfully!</h2>
+            </div>
+
+            {/* Success Details */}
+            <div className="p-6 space-y-4">
+              <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-4 border border-yellow-200">
+                <div className="space-y-3">
+                  <div className="flex items-start">
+                    <span className="text-gray-600 font-medium min-w-[120px]">Student:</span>
+                    <span className="text-gray-900 font-semibold flex-1">{successData.studentName}</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 font-medium min-w-[120px]">Course:</span>
+                    <span className="text-gray-900 font-semibold flex-1">{successData.courseName}</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 font-medium min-w-[120px]">Certificate No:</span>
+                    <span className="text-orange-600 font-mono font-bold flex-1">{successData.certificateNumber}</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 font-medium min-w-[120px]">Generated:</span>
+                    <span className="text-gray-900 flex-1">{successData.timestamp}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start space-x-2">
+                <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"></path>
+                </svg>
+                <p className="text-sm text-blue-800">
+                  The certificate has been generated and saved successfully. You can view, download, or print it from the certificates list.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex space-x-3 pt-2">
+                <button
+                  onClick={() => {
+                    setShowSuccessPopup(false);
+                    setSuccessData(null);
+                  }}
+                  className="flex-1 px-6 py-3 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white rounded-lg font-semibold transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
+                >
+                  ✓ Got it!
+                </button>
+              </div>
             </div>
           </div>
         </div>

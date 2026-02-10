@@ -26,9 +26,10 @@ const StudentRegistration = () => {
   // API Base URL
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
-  const [formData, setFormData] = useState({
+  const initialFormState = {
     // Personal Details
     branchCode: '',
+    password: '',
     reg: '230',
     admissionYear: '',
     studentName: '',
@@ -61,7 +62,9 @@ const StudentRegistration = () => {
     otherCharge: '',
     dateOfAdmission: '',
     enquirySource: ''
-  });
+  };
+
+  const [formData, setFormData] = useState(initialFormState);
 
   // Get franchise/branch code from token
   const getBranchCode = () => {
@@ -69,7 +72,7 @@ const StudentRegistration = () => {
     if (token) {
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
-        return payload.franchise_code || payload.branch_code || payload.sub;
+        return payload.branch_code || payload.franchise_code || payload.sub;
       } catch (error) {
         console.error('Error decoding token:', error);
         return null;
@@ -146,23 +149,27 @@ const StudentRegistration = () => {
 
   // Initialize data on component mount
   useEffect(() => {
+    const code = getBranchCode();
+    if (code) {
+      setFormData(prev => ({ ...prev, branchCode: code }));
+    }
+
     if (viewMode === 'table') {
       fetchStudents();
     } else if (viewMode === 'form') {
-      fetchBranches();
-      fetchCourses();
-      fetchBatches();
+      fetchCourses(code);
+      fetchBatches(code);
     }
   }, [viewMode]);
 
-  // Load dropdown data when edit modal opens
+  // Load dropdown data when edit/form modal opens
   useEffect(() => {
-    if (showEditModal) {
+    if (showEditModal || showFormModal) {
       fetchBranches();
       fetchCourses();
       fetchBatches();
     }
-  }, [showEditModal]);
+  }, [showEditModal, showFormModal]);
 
   // Fetch branches from backend
   const fetchBranches = async () => {
@@ -207,7 +214,7 @@ const StudentRegistration = () => {
       setLoadingCourses(true);
       console.log('📚 [StudentRegistration] Fetching courses...');
 
-      let url = `${API_BASE_URL}/api/branch-courses/courses/dropdown`;
+      let url = `${API_BASE_URL}/api/branch-courses/courses`;
       if (branchCode) {
         url += `?branch_code=${branchCode}`;
       }
@@ -223,7 +230,10 @@ const StudentRegistration = () => {
         const data = await response.json();
         console.log('📚 [StudentRegistration] Courses response:', data);
 
-        if (data.courses && Array.isArray(data.courses)) {
+        if (Array.isArray(data)) {
+          setCourses(data);
+          console.log('📚 [StudentRegistration] Loaded', data.length, 'courses');
+        } else if (data.courses && Array.isArray(data.courses)) {
           setCourses(data.courses);
           console.log('📚 [StudentRegistration] Loaded', data.courses.length, 'courses');
         } else if (data.options && Array.isArray(data.options)) {
@@ -295,16 +305,23 @@ const StudentRegistration = () => {
   };
 
   // Validation helpers
-  const isOnlyLettersAndSpaces = (value) => /^[a-zA-Z\s]*$/.test(value);
-  const isOnlyNumbers = (value) => /^[0-9]*$/.test(value);
-  const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || value === '';
-  const isValidAddress = (value) => /^[a-zA-Z0-9\s,.\-\/]*$/.test(value); // Allow letters, numbers, spaces, commas, dots, hyphens, slashes
+  const isName = (value) => /^[a-zA-Z\s\.\']*$/.test(value); // Allow letters, spaces, dots, apostrophes
+  const isPhone = (value) => /^[0-9+\-\s]*$/.test(value);    // Allow digits, plus, minus, spaces
+  const isAmount = (value) => /^[0-9.]*$/.test(value);       // Allow digits and dots for fees
+  const isNumber = (value) => /^[0-9]*$/.test(value);        // Strict digits (pincode)
+  const isValidAddress = (value) => /^[a-zA-Z0-9\s,.\-\/]*$/.test(value);
 
   // Fields that should only accept letters and spaces (names)
   const nameFields = ['studentName', 'fatherName', 'motherName', 'state', 'district'];
 
-  // Fields that should only accept numbers
-  const numericFields = ['contactNo', 'parentContact', 'pincode', 'netFee', 'discount', 'otherCharge'];
+  // Fields for phone numbers
+  const phoneFields = ['contactNo', 'parentContact'];
+
+  // Fields for fees (decimals allowed)
+  const amountFields = ['netFee', 'discount', 'otherCharge'];
+
+  // Fields for strict integers
+  const numberFields = ['pincode'];
 
   const handleInputChange = (e) => {
     const { name, value, type, files } = e.target;
@@ -317,26 +334,14 @@ const StudentRegistration = () => {
       // Apply validation based on field type
       let validatedValue = value;
 
-      // For name fields - only allow letters and spaces
-      if (nameFields.includes(name)) {
-        if (!isOnlyLettersAndSpaces(value)) {
-          return; // Don't update if invalid
-        }
-      }
-
-      // For numeric fields - only allow numbers
-      if (numericFields.includes(name)) {
-        if (!isOnlyNumbers(value)) {
-          return; // Don't update if invalid
-        }
-      }
+      // Validation logic
+      if (nameFields.includes(name) && !isName(value)) return;
+      if (phoneFields.includes(name) && !isPhone(value)) return;
+      if (amountFields.includes(name) && !isAmount(value)) return;
+      if (numberFields.includes(name) && !isNumber(value)) return;
 
       // For address field - allow alphanumeric with special characters
-      if (name === 'address') {
-        if (!isValidAddress(value)) {
-          return; // Don't update if invalid
-        }
-      }
+      if (name === 'address' && !isValidAddress(value)) return;
 
       setFormData(prev => ({
         ...prev,
@@ -361,6 +366,7 @@ const StudentRegistration = () => {
       // Prepare student data for API
       const studentData = {
         branch_code: formData.branchCode || branchCode,
+        password: formData.password,
         admission_year: formData.admissionYear || new Date().getFullYear().toString(),
         student_name: formData.studentName,
         father_name: formData.fatherName,
@@ -409,7 +415,8 @@ const StudentRegistration = () => {
         console.log('✅ [StudentRegistration] Student registered successfully:', result);
         alert('Student registered successfully!');
 
-        // Go back to table view and refresh the student list
+        // Close modal and refresh list
+        setShowFormModal(false);
         setViewMode('table');
         await fetchStudents();
       } else {
@@ -428,36 +435,8 @@ const StudentRegistration = () => {
     setViewMode('table');
     // Reset form
     setFormData({
-      branchCode: '',
-      reg: '230',
-      admissionYear: '',
-      studentName: '',
-      fatherName: '',
-      motherName: '',
-      dateOfBirth: '',
-      contactNo: '',
-      parentContact: '',
-      gender: '',
-      category: '',
-      religion: '',
-      maritalStatus: '',
-      identityType: '',
-      idNumber: '',
-      lastGeneralQualification: '',
-      state: '',
-      district: '',
-      address: '',
-      pincode: '',
-      emailId: '',
-      photo: null,
-      courseCategory: '',
-      course: '',
-      batch: '',
-      netFee: '',
-      discount: '',
-      otherCharge: '',
-      dateOfAdmission: '',
-      enquirySource: ''
+      ...initialFormState,
+      branchCode: getBranchCode() || ''
     });
   };
 
@@ -743,7 +722,13 @@ const StudentRegistration = () => {
           <h1 className="text-2xl font-bold text-gray-800">MANAGE STUDENTS</h1>
         </div>
         <button
-          onClick={() => setShowFormModal(true)}
+          onClick={() => {
+            setFormData({
+              ...initialFormState,
+              branchCode: getBranchCode() || ''
+            });
+            setShowFormModal(true);
+          }}
           className="flex items-center justify-center gap-2 px-6 py-3 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors font-semibold w-full md:w-auto"
         >
           <FaPlus />
@@ -958,29 +943,13 @@ const StudentRegistration = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 BRANCH CODE *
               </label>
-              <select
+              <input
+                type="text"
                 name="branchCode"
                 value={formData.branchCode}
-                onChange={(e) => {
-                  handleInputChange(e);
-                  // Fetch courses for selected branch
-                  if (e.target.value) {
-                    fetchCourses(e.target.value);
-                  }
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                required
-                disabled={loadingBranches}
-              >
-                <option value="">
-                  {loadingBranches ? 'Loading branches...' : 'Select Branch'}
-                </option>
-                {branches.map((branch) => (
-                  <option key={branch.id || branch.code} value={branch.code || branch.branch_code || branch.value}>
-                    {branch.name || branch.branch_name || branch.centre_name || branch.label} ({branch.code || branch.branch_code || branch.value})
-                  </option>
-                ))}
-              </select>
+                readOnly
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed focus:outline-none"
+              />
             </div>
 
             <div>
@@ -1306,6 +1275,20 @@ const StudentRegistration = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
+                Password
+              </label>
+              <input
+                type="text"
+                name="password"
+                value={formData.password}
+                onChange={handleInputChange}
+                placeholder="Set login password"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Photo
               </label>
               <input
@@ -1600,24 +1583,13 @@ const StudentRegistration = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Branch Code *</label>
-                    <select
+                    <input
+                      type="text"
                       name="branchCode"
                       value={formData.branchCode}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Select Branch</option>
-                      {loadingBranches ? (
-                        <option disabled>Loading branches...</option>
-                      ) : (
-                        branches.map((branch) => (
-                          <option key={branch.id || branch.branch_code} value={branch.branch_code || branch.code}>
-                            {branch.branch_name || branch.name} ({branch.branch_code || branch.code})
-                          </option>
-                        ))
-                      )}
-                    </select>
+                      readOnly
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed"
+                    />
                   </div>
 
                   <div>
@@ -1878,6 +1850,20 @@ const StudentRegistration = () => {
                       value={formData.emailId}
                       onChange={handleInputChange}
                       className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Password</label>
+                    <input
+                      type="text"
+                      name="password"
+                      value={formData.password}
+                      onChange={handleInputChange}
+                      placeholder="Set login password"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      required
                     />
                   </div>
 
@@ -1886,7 +1872,7 @@ const StudentRegistration = () => {
                     <input
                       type="file"
                       name="photo"
-                      onChange={handleFileChange}
+                      onChange={handleInputChange}
                       accept="image/*"
                       className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                     />
@@ -2495,6 +2481,7 @@ const StudentRegistration = () => {
       {renderContent()}
       {renderViewModal()}
       {renderEditModal()}
+      {renderDeleteConfirmModal()}
       {renderFormModal()}
       {loading && (
         <div className="bg-white rounded-lg p-6 flex items-center gap-3">

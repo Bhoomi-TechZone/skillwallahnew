@@ -69,24 +69,50 @@ def generate_random_password(length: int = 8) -> str:
         password = password[:-1] + secrets.choice(string.digits)
     return password
 
-def generate_registration_number(branch_code: str, admission_year: str, db) -> str:
+def generate_registration_number(branch_code: str, admission_year: str, db) -> tuple:
     """Generate unique registration number for student"""
-    # Format: BRANCH_YEAR_SEQUENCE (e.g., BR001_2024_001)
+    # Format: BRANCH_YEAR_SEQUENCE (e.g., BR001_24_001)
     year_suffix = admission_year[-2:]  # Last 2 digits of year
     
-    # Find the last registration number for this branch and year
-    last_student = db.branch_students.find_one(
+    # Try 1: Find by registration_sequence
+    last_student_seq = db.branch_students.find_one(
         {
             "branch_code": branch_code,
-            "admission_year": admission_year
+            "admission_year": admission_year,
+            "registration_sequence": {"$exists": True, "$ne": None}
         },
         sort=[("registration_sequence", -1)]
     )
     
-    if last_student and "registration_sequence" in last_student:
-        sequence = last_student["registration_sequence"] + 1
-    else:
-        sequence = 1
+    seq_1 = 0
+    if last_student_seq:
+        seq_1 = last_student_seq.get("registration_sequence", 0)
+        
+    # Try 2: Find by registration_number (parse string) in case sequence field is missing
+    # Filter for reg numbers matching pattern to avoid parsing errors
+    # Pattern: BRANCH_YEAR_DIGITS
+    pattern = f"^{re.escape(branch_code)}_{year_suffix}_\\d+$"
+    last_student_reg = db.branch_students.find_one(
+        {
+            "branch_code": branch_code,
+            "admission_year": admission_year,
+            "registration_number": {"$regex": pattern}
+        },
+        sort=[("registration_number", -1)]  # String sort works for fixed length suffix
+    )
+    
+    seq_2 = 0
+    if last_student_reg:
+        reg_num = last_student_reg.get("registration_number", "")
+        parts = reg_num.split('_')
+        if len(parts) >= 3 and parts[-1].isdigit():
+            try:
+                seq_2 = int(parts[-1])
+            except ValueError:
+                pass
+                
+    # Use max sequence
+    sequence = max(seq_1, seq_2) + 1
     
     # Format sequence with leading zeros (3 digits)
     sequence_str = f"{sequence:03d}"
@@ -175,6 +201,13 @@ async def register_branch_student(
         # Validate using Pydantic model
         try:
             validated_data = BranchStudentRegistration(**student_data)
+            
+            # Sync email_id and email fields to handle frontend/schema inconsistencies
+            # This prevents email_id from being None when only email is provided
+            if not validated_data.email_id and validated_data.email:
+                validated_data.email_id = validated_data.email
+            if not validated_data.email and validated_data.email_id:
+                validated_data.email = validated_data.email_id
         except Exception as validation_error:
             print(f"[DEBUG] Validation error: {validation_error}")
             # Extract detailed validation errors
@@ -832,6 +865,16 @@ async def get_student_details(
     db = request.app.mongodb
     multi_tenant = get_multi_tenant_manager(db)
     
+    def fix_object_ids(doc):
+        """Recursively convert ObjectIds to strings"""
+        if isinstance(doc, ObjectId):
+            return str(doc)
+        if isinstance(doc, list):
+            return [fix_object_ids(item) for item in doc]
+        if isinstance(doc, dict):
+            return {k: fix_object_ids(v) for k, v in doc.items()}
+        return doc
+    
     try:
         # Get branch context with tenant isolation
         try:
@@ -872,9 +915,12 @@ async def get_student_details(
         if not student:
             raise HTTPException(status_code=404, detail="Student not found or access denied")
         
-        # Convert ObjectId to string for JSON serialization
-        student["_id"] = str(student["_id"])
-        student["id"] = student["_id"]
+        # Convert all ObjectIds to strings
+        student = fix_object_ids(student)
+        
+        # Ensure id field exists (as alias for _id)
+        if "_id" in student:
+            student["id"] = student["_id"]
         
         # Log tenant activity
         multi_tenant.log_tenant_activity(
@@ -892,6 +938,8 @@ async def get_student_details(
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[DEBUG] Error fetching student details: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to fetch student: {str(e)}")
 
 @router.put("/students/{student_id}")
@@ -1951,3 +1999,81 @@ async def fix_student_email_fields(request: Request, current_user: dict = Depend
     except Exception as e:
         print(f"[FIX] Migration error: {e}")
         raise HTTPException(status_code=500, detail=f"Migration failed: {str(e)}")
+
+
+@router.delete("/students/{student_id}")
+async def delete_student(
+    request: Request,
+    student_id: str,
+    current_user: dict = Depends(require_branch_access)
+):
+    """Soft delete a student"""
+    db = request.app.mongodb
+    multi_tenant = get_multi_tenant_manager(db)
+    
+    try:
+        # Get branch context with tenant isolation
+        try:
+            context = multi_tenant.get_branch_context(current_user)
+        except Exception:
+            # Fallback if context retrieval fails
+            franchise_code, branch_code = get_branch_info_from_db(db, current_user)
+            if not franchise_code:
+                raise HTTPException(status_code=400, detail="Unable to determine branch context")
+            
+            context = {
+                "franchise_code": franchise_code,
+                "branch_code": branch_code,
+                "user_id": current_user.get("user_id", str(current_user.get("_id"))),
+                "role": current_user.get("role")
+            }
+
+        # Verify student exists and belongs to branch
+        # Use find_one with strict branch filtering
+        student = db.branch_students.find_one({
+            "_id": ObjectId(student_id),
+            "branch_code": context["branch_code"]
+        })
+        
+        if not student:
+            # Try finding by Franchise if branch strict check fails for some reason
+            student = db.branch_students.find_one({
+                "_id": ObjectId(student_id),
+                "franchise_code": context["franchise_code"]
+            })
+            
+            if not student:
+                raise HTTPException(status_code=404, detail="Student not found or access denied")
+
+        # Soft delete
+        result = db.branch_students.update_one(
+            {"_id": ObjectId(student_id)},
+            {
+                "$set": {
+                    "admission_status": "DELETED",
+                    "deleted_at": datetime.utcnow().isoformat(),
+                    "deleted_by": context.get("user_id", "unknown")
+                }
+            }
+        )
+        
+        # Log activity
+        try:
+            multi_tenant.log_tenant_activity(
+                context,
+                "STUDENT_DELETED", 
+                {
+                    "student_id": student_id, 
+                    "name": student.get("student_name")
+                }
+            )
+        except Exception as log_error:
+            print(f"[DELETE STUDENT] Logging error: {log_error}")
+        
+        return {"success": True, "message": "Student deleted successfully", "id": student_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[DELETE STUDENT] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { getUserData, logout } from '../../utils/authUtils';
 import branchStudentDashboardService from '../../services/branchStudentDashboardService';
+import { generateIdCard } from '../../utils/idCardGenerator';
 
 const API_BASE_URL = 'http://localhost:4000';
 
@@ -20,6 +21,7 @@ const StudentProfile = ({ showIdCard = false, onIdCardViewed = () => { }, studen
   const [realIdCard, setRealIdCard] = useState(null);
   const [idCardLoading, setIdCardLoading] = useState(false);
   const [hasRealIdCard, setHasRealIdCard] = useState(false);
+  const [generatedCardImage, setGeneratedCardImage] = useState(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -135,32 +137,76 @@ const StudentProfile = ({ showIdCard = false, onIdCardViewed = () => { }, studen
         console.log('🎯 [STUDENT ID CARD] Found matching card:', studentIdCard);
 
         if (studentIdCard) {
-          // Check if the card has a generated image
-          const hasGeneratedImage = studentIdCard.id_card_image_url ||
-            studentIdCard.image_url ||
-            studentIdCard.card_image ||
-            (studentIdCard.id_card && studentIdCard.id_card.image_url);
+          console.log('✅ [STUDENT ID CARD] Found student record in DB');
 
-          if (hasGeneratedImage) {
-            console.log('✅ [STUDENT ID CARD] Found real generated ID card with image');
+          // Generate the ID card using the shared utility
+          try {
+            console.log('🎨 [STUDENT ID CARD] Generating client-side ID card...');
+
+            // Map DB fields to Generator expected fields
+            // The generator expects specific keys: duration, center, address, contact_no, etc.
+            const cardData = {
+              ...studentIdCard,
+              student_name: studentIdCard.student_name || studentIdCard.name || profileData?.name || 'N/A',
+              registration_number: studentIdCard.student_registration || studentIdCard.registration_number || profileData?.registrationNo || 'N/A',
+              course: studentIdCard.course || profileData?.course || 'N/A',
+              // IMPORTANT: Map course_duration to duration if duration is missing
+              duration: studentIdCard.duration || studentIdCard.course_duration || profileData?.duration || 'N/A',
+              // Map branch/center
+              center: studentIdCard.center || studentIdCard.center_name || studentIdCard.branch_name || studentIdCard.branch_code || profileData?.branch || 'N/A',
+              address: studentIdCard.address || profileData?.address || 'N/A',
+              contact_no: studentIdCard.contact_no || studentIdCard.contact_number || studentIdCard.mobile || studentIdCard.phone || profileData?.mobile || 'N/A',
+              // Ensure photo URL is accessible
+              student_photo_url: studentIdCard.student_photo_url || studentIdCard.photo_url || studentIdCard.student_photo || studentIdCard.profile_image || ''
+            };
+
+            console.log('📋 [STUDENT ID CARD] Mapped Card Data for Generator:', cardData);
+
+            const idCardImage = await generateIdCard(cardData);
+            setGeneratedCardImage(idCardImage);
+
             setRealIdCard({
               has_id_card: true,
               id_card: {
-                image_url: studentIdCard.id_card_image_url ||
-                  studentIdCard.image_url ||
-                  studentIdCard.card_image ||
-                  studentIdCard.id_card?.image_url,
+                image_url: idCardImage, // Use generated Base64
                 issue_date: studentIdCard.issue_date || studentIdCard.created_at,
                 card_number: studentIdCard.card_number || studentIdCard.id,
                 status: studentIdCard.status || 'active'
               },
-              student_data: studentIdCard
+              student_data: cardData // Use the mapped data
             });
             setHasRealIdCard(true);
-          } else {
-            console.log('📋 [STUDENT ID CARD] Found student record but no generated image');
-            setHasRealIdCard(false);
+
+          } catch (genError) {
+            console.error('❌ [STUDENT ID CARD] Failed to generate client-side card:', genError);
+            // Fallback to stored image if generation fails
+            const rawImageUrl = studentIdCard.id_card_image_url ||
+              studentIdCard.image_url ||
+              studentIdCard.card_image ||
+              (studentIdCard.id_card && studentIdCard.id_card.image_url) ||
+              studentIdCard.file_path;
+
+            if (rawImageUrl) {
+              let finalImageUrl = rawImageUrl;
+              if (rawImageUrl && !rawImageUrl.startsWith('http') && !rawImageUrl.startsWith('/')) {
+                finalImageUrl = `/${rawImageUrl}`;
+              }
+              setRealIdCard({
+                has_id_card: true,
+                id_card: {
+                  image_url: finalImageUrl,
+                  issue_date: studentIdCard.issue_date || studentIdCard.created_at,
+                  card_number: studentIdCard.card_number || studentIdCard.id,
+                  status: studentIdCard.status || 'active'
+                },
+                student_data: studentIdCard
+              });
+              setHasRealIdCard(true);
+            } else {
+              setHasRealIdCard(false);
+            }
           }
+
         } else {
           console.log('❌ [STUDENT ID CARD] No matching student ID card found');
           setHasRealIdCard(false);
@@ -209,94 +255,31 @@ const StudentProfile = ({ showIdCard = false, onIdCardViewed = () => { }, studen
     return names[type] || type;
   };
 
-  const generateIdCard = () => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-
-    // Set canvas size (ID card dimensions)
-    canvas.width = 640;
-    canvas.height = 400;
-
-    // Background gradient
-    const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
-    gradient.addColorStop(0, '#0891b2'); // teal-500
-    gradient.addColorStop(1, '#0284c7'); // sky-600
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Header section
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.fillRect(0, 0, canvas.width, 80);
-
-    // Institution name
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 24px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('Student ID Card', canvas.width / 2, 35);
-    ctx.font = '14px Arial';
-    ctx.fillText('London Learning Management System', canvas.width / 2, 60);
-
-    // Student photo placeholder
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(30, 100, 120, 120);
-    ctx.fillStyle = '#e5e7eb';
-    ctx.fillRect(35, 105, 110, 110);
-
-    // Photo placeholder text
-    ctx.fillStyle = '#6b7280';
-    ctx.font = '12px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('Student', 90, 155);
-    ctx.fillText('Photo', 90, 170);
-
-    // Student details
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px Arial';
-    ctx.textAlign = 'left';
-    ctx.fillText(profileData?.name || 'Student Name', 170, 130);
-
-    ctx.font = '14px Arial';
-    ctx.fillText(`Reg No: ${profileData?.registrationNo || 'N/A'}`, 170, 155);
-    ctx.fillText(`Course: ${profileData?.course || 'N/A'}`, 170, 175);
-    ctx.fillText(`Branch: ${profileData?.branch || 'N/A'}`, 170, 195);
-    ctx.fillText(`Mobile: ${profileData?.mobile || 'N/A'}`, 170, 215);
-
-    // Footer
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.fillRect(0, canvas.height - 60, canvas.width, 60);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '12px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('Valid for Academic Session', canvas.width / 2, canvas.height - 35);
-    ctx.fillText(`Issued: ${new Date().toLocaleDateString()}`, canvas.width / 2, canvas.height - 15);
-
-    return canvas;
+  const handleDownloadCard = () => {
+    if (realIdCard?.id_card?.image_url) {
+      const link = document.createElement('a');
+      link.href = realIdCard.id_card.image_url;
+      link.download = `ID_Card_${profileData?.registrationNo || 'Student'}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
 
-  const downloadIdCard = () => {
-    const canvas = generateIdCard();
-    const link = document.createElement('a');
-    link.download = `ID_Card_${profileData?.registrationNo || 'Student'}.png`;
-    link.href = canvas.toDataURL();
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const printIdCard = () => {
-    const canvas = generateIdCard();
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-      <html>
-        <head><title>Student ID Card</title></head>
-        <body style="margin: 0; padding: 20px; text-align: center;">
-          <img src="${canvas.toDataURL()}" style="max-width: 100%; height: auto;" />
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
+  const handlePrintCard = () => {
+    if (realIdCard?.id_card?.image_url) {
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+          <html>
+            <head><title>Student ID Card</title></head>
+            <body style="margin: 0; padding: 20px; text-align: center;">
+              <img src="${realIdCard.id_card.image_url}" style="max-width: 100%; height: auto;" />
+              <script>onload = function() { window.print(); }</script>
+            </body>
+          </html>
+        `);
+      printWindow.document.close();
+    }
   };
 
   const loadProfileData = async () => {
@@ -823,13 +806,13 @@ const StudentProfile = ({ showIdCard = false, onIdCardViewed = () => { }, studen
                     </div>
                     <div className="p-4 flex justify-center overflow-auto">
                       <img
-                        src={`${API_BASE_URL}${realIdCard.id_card.image_url}`}
+                        src={realIdCard.id_card.image_url.startsWith('data:') ? realIdCard.id_card.image_url : `${API_BASE_URL}${realIdCard.id_card.image_url}`}
                         alt="Student ID Card"
                         className="max-w-full h-auto rounded-lg shadow-lg object-contain"
                         style={{ maxHeight: '50vh' }}
                         onError={(e) => {
-                          console.error('❌ [ID CARD] Failed to load real ID card image:', realIdCard.id_card.image_url);
-                          alert('Failed to load ID card image. Please contact administrator.');
+                          console.error('❌ [ID CARD] Failed to load real ID card image:', realIdCard.id_card.image_url?.substring(0, 100));
+                          // Don't alert immediately to avoid spam
                           setHasRealIdCard(false);
                         }}
                         onLoad={() => {
@@ -845,62 +828,19 @@ const StudentProfile = ({ showIdCard = false, onIdCardViewed = () => { }, studen
                     </div>
                   </div>
                 ) : (
-                  /* Canvas Generated Preview - When no real ID card exists */
-                  <div className="bg-white rounded-lg shadow-2xl overflow-hidden w-full">
-                    <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-3 text-center">
-                      <h3 className="text-white font-bold text-lg">📋 ID Card Preview</h3>
-                      <p className="text-orange-100 text-sm">Preview only - Contact administrator for official ID card</p>
+                  /* No ID Card State */
+                  <div className="bg-white rounded-lg shadow-2xl overflow-hidden w-full p-8 text-center">
+                    <div className="mb-4">
+                      <span className="text-6xl">🪪</span>
                     </div>
-                    <div className="p-4 overflow-x-auto flex justify-center">
-                      <div className="bg-gradient-to-r from-teal-500 to-sky-600 rounded-lg p-1 shadow-lg min-w-fit mx-auto">
-                        <div className="bg-white rounded-lg overflow-hidden transform scale-[0.8] sm:scale-100 origin-top-left sm:origin-center" style={{ width: '640px', height: '400px', marginBottom: '-40px', marginRight: '-60px' }}>
-                          {/* Header */}
-                          <div className="bg-gradient-to-r from-teal-500 to-sky-600 h-20 relative">
-                            <div className="absolute inset-0 bg-white bg-opacity-20"></div>
-                            <div className="relative text-center pt-2">
-                              <h1 className="text-white text-2xl font-bold">Student ID Card</h1>
-                              <p className="text-white text-sm">London Learning Management System</p>
-                            </div>
-                          </div>
-
-                          {/* Content */}
-                          <div className="p-6 h-64 flex">
-                            {/* Photo */}
-                            <div className="w-32 h-32 bg-gray-200 border-4 border-white shadow-lg rounded flex items-center justify-center flex-shrink-0">
-                              <div className="text-center text-gray-500">
-                                <div className="text-2xl mb-1">👤</div>
-                                <div className="text-xs">Student Photo</div>
-                              </div>
-                            </div>
-
-                            {/* Details */}
-                            <div className="ml-6 flex-1">
-                              <h2 className="text-2xl font-bold mb-4 text-gray-800">{profileData?.name || 'Student Name'}</h2>
-                              <div className="space-y-2 text-gray-700">
-                                <p><span className="font-semibold">Reg No:</span> {profileData?.registrationNo || 'N/A'}</p>
-                                <p><span className="font-semibold">Course:</span> {profileData?.course || 'N/A'}</p>
-                                <p><span className="font-semibold">Branch:</span> {profileData?.branch || 'N/A'}</p>
-                                <p><span className="font-semibold">Mobile:</span> {profileData?.mobile || 'N/A'}</p>
-                                <p><span className="font-semibold">Email:</span> {profileData?.email || 'N/A'}</p>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Footer */}
-                          <div className="bg-gradient-to-r from-teal-500 to-sky-600 h-16 relative">
-                            <div className="absolute inset-0 bg-white bg-opacity-20"></div>
-                            <div className="relative text-center pt-3">
-                              <p className="text-white text-sm">Valid for Academic Session</p>
-                              <p className="text-white text-xs">Issued: {new Date().toLocaleDateString()}</p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="bg-orange-50 border-t border-orange-200 p-3 text-center">
-                      <div className="flex items-center justify-center text-orange-700">
-                        <span className="mr-2">⚠️</span>
-                        <span className="text-sm font-medium">This is a preview only - No official ID card generated yet</span>
+                    <h3 className="text-2xl font-bold text-gray-800 mb-2">No ID Card Available</h3>
+                    <p className="text-gray-600 mb-6">Your official ID card has not been generated yet.</p>
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 inline-block max-w-md">
+                      <div className="flex items-center text-orange-700">
+                        <span className="mr-2 text-xl">ℹ️</span>
+                        <span className="text-sm font-medium text-left">
+                          Please contact your branch administrator to generate your official student ID card. Once generated, it will appear here automatically.
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -916,9 +856,12 @@ const StudentProfile = ({ showIdCard = false, onIdCardViewed = () => { }, studen
                       onClick={() => {
                         // Download real ID card
                         const link = document.createElement('a');
-                        link.href = `${API_BASE_URL}${realIdCard.id_card.image_url}`;
+                        const url = realIdCard.id_card.image_url;
+                        link.href = url.startsWith('data:') ? url : `${API_BASE_URL}${url}`;
                         link.download = `ID_Card_${profileData?.registrationNo || 'Student'}.png`;
+                        document.body.appendChild(link);
                         link.click();
+                        document.body.removeChild(link);
                       }}
                       className="bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center order-2 sm:order-1"
                     >
@@ -929,16 +872,21 @@ const StudentProfile = ({ showIdCard = false, onIdCardViewed = () => { }, studen
                       onClick={() => {
                         // Print real ID card
                         const printWindow = window.open('', '_blank');
+                        const url = realIdCard.id_card.image_url;
+                        const finalUrl = url.startsWith('data:') ? url : `${API_BASE_URL}${url}`;
+
                         printWindow.document.write(`
                           <html>
                             <head><title>Student ID Card</title></head>
                             <body style="margin: 0; padding: 20px; text-align: center;">
-                              <img src="${API_BASE_URL}${realIdCard.id_card.image_url}" style="max-width: 100%; height: auto;" />
+                              <img src="${finalUrl}" style="max-width: 100%; height: auto;" />
+                              <script>
+                                window.onload = function() { setTimeout(function(){ window.print(); }, 500); }
+                              </script>
                             </body>
                           </html>
                         `);
                         printWindow.document.close();
-                        printWindow.print();
                       }}
                       className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center order-1 sm:order-2"
                     >
@@ -950,18 +898,18 @@ const StudentProfile = ({ showIdCard = false, onIdCardViewed = () => { }, studen
                   /* Preview ID Card Actions */
                   <>
                     <button
-                      onClick={downloadIdCard}
+                      onClick={handleDownloadCard}
                       className="bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center order-2 sm:order-1"
                     >
                       <span className="mr-2">⬇️</span>
-                      Download Preview
+                      Download ID Card
                     </button>
                     <button
-                      onClick={printIdCard}
+                      onClick={handlePrintCard}
                       className="bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center order-1 sm:order-2"
                     >
                       <span className="mr-2">🖨️</span>
-                      Print Preview
+                      Print ID Card
                     </button>
                     <div className="text-center w-full order-3">
                       <p className="text-sm text-orange-600 mt-2">

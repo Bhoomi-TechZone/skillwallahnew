@@ -138,11 +138,19 @@ async def generate_id_card(
             "created_by": context["user_id"]
         }
         
-        id_card_dir = f"uploads/id_cards/{context['franchise_code']}"
+        # Define base uploads directory (absolute path)
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
+        
+        id_card_dir_relative = f"uploads/id_cards/{context['franchise_code']}"
+        id_card_dir = os.path.join(UPLOADS_DIR, "id_cards", context["franchise_code"])
         os.makedirs(id_card_dir, exist_ok=True)
         
         image_filename = f"id_card_{card_number}.png"
-        image_path = os.path.join(id_card_dir, image_filename)
+        image_path_abs = os.path.join(id_card_dir, image_filename)
+        
+        # Store relative path in DB with forward slashes for consistency
+        image_path = f"{id_card_dir_relative}/{image_filename}"
         
         branch_info = {}
         branch = db.branches.find_one({"franchise_code": context["franchise_code"]})

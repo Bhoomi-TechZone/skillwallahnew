@@ -4990,17 +4990,30 @@ async def generate_student_id_card(request: Request, current_user: dict = Depend
         logger.info(f"[ID CARD] Duration to use: {duration_to_use}")
         
         # Use photo_url from request if provided, otherwise use student's photo
-        photo_to_use = request_photo_url or student.get("photo_url") or student.get("photo")
-        logger.info(f"[ID CARD] Photo to use for ID card: {photo_to_use}")
+        logger.info(f"[ID CARD] Photo from request (photo_url): {request_photo_url}")
+        logger.info(f"[ID CARD] Photo from student record (photo_url): {student.get('photo_url')}")
+        logger.info(f"[ID CARD] Photo from student record (photo): {student.get('photo')}")
+        logger.info(f"[ID CARD] Photo from student record (student_photo): {student.get('student_photo')}")
+        logger.info(f"[ID CARD] Photo from student record (profile_image): {student.get('profile_image')}")
+        
+        photo_to_use = request_photo_url or student.get("photo_url") or student.get("photo") or student.get("student_photo") or student.get("profile_image")
+        logger.info(f"[ID CARD] ✅ Final photo to use for ID card: {photo_to_use}")
         
         if existing_card:
             logger.info(f"[ID CARD] ID card already exists: {existing_card['_id']}, UPDATING with new form data")
+            
+            # For updates, use existing photo if no new photo provided
+            if not photo_to_use:
+                photo_to_use = existing_card.get("photo_url") or existing_card.get("student_photo_url") or existing_card.get("student_photo")
+                logger.info(f"[ID CARD] No new photo provided, using existing photo: {photo_to_use}")
             
             # Update existing card with new form data
             update_data = {
                 "address": address_to_use,
                 "course_duration": duration_to_use,
+                "photo_url": photo_to_use,  # Uploaded student photo
                 "student_photo_url": photo_to_use,
+                "student_photo": photo_to_use,  # Also store as student_photo for consistency
                 "updated_at": datetime.utcnow()
             }
             
@@ -5015,7 +5028,7 @@ async def generate_student_id_card(request: Request, current_user: dict = Depend
             success = await generate_id_card_image(student, image_path, student_branch_code, db, photo_to_use, address_to_use, duration_to_use)
             if success:
                 update_data["file_path"] = image_path
-                update_data["photo_url"] = image_path
+                # Don't overwrite photo_url - it should remain as the uploaded student photo
             
             # Update the existing record
             db.branch_id_cards.update_one(
@@ -5043,6 +5056,14 @@ async def generate_student_id_card(request: Request, current_user: dict = Depend
                     "student_photo_url": photo_to_use
                 }
             }
+        
+        # REQUIRE photo for NEW ID card generation only
+        if not photo_to_use:
+            logger.error(f"[ID CARD] ❌ ERROR: No photo found! Cannot generate NEW ID card without student photo.")
+            raise HTTPException(
+                status_code=400, 
+                detail="Student photo is required to generate ID card. Please upload a photo first or ensure the student has a photo in their profile."
+            )
         
         # Generate card number
         card_count = db.branch_id_cards.count_documents({
@@ -5072,7 +5093,9 @@ async def generate_student_id_card(request: Request, current_user: dict = Depend
             "course": student.get("course", ""),
             "course_duration": duration_to_use,  # Duration from form or student record
             "batch": student.get("batch", ""),
+            "photo_url": photo_to_use,  # Uploaded student photo
             "student_photo_url": photo_to_use,  # Photo from form or student record
+            "student_photo": photo_to_use,  # Also store as student_photo for consistency
             "card_type": card_type,
             "issue_date": datetime.now().strftime("%Y-%m-%d"),
             "expiry_date": datetime.now().replace(year=datetime.now().year + 1).strftime("%Y-%m-%d"),
@@ -5096,7 +5119,9 @@ async def generate_student_id_card(request: Request, current_user: dict = Depend
         
         if success:
             id_card_doc["file_path"] = image_path
-            id_card_doc["photo_url"] = image_path
+            # Don't overwrite photo_url - it should remain as the uploaded student photo
+            # photo_url and student_photo store the actual student photo
+            # file_path stores the generated ID card image
         
         # Insert ID card into branch_id_cards collection
         logger.info(f"[ID CARD] About to insert ID card document: {id_card_doc}")
@@ -5301,10 +5326,12 @@ async def generate_id_card_image(student, output_path, branch_code, db, photo_ur
         draw.text((text_start_x, y_pos), f"Contact: {contact_no}", fill='black', font=font_label)
         y_pos += line_height
         
+        
         # Address (truncate if too long)
-        address_display = address[:40] + "..." if len(address) > 40 else address
-        draw.text((text_start_x, y_pos), f"Address: {address_display}", fill='black', font=font_small)
-        y_pos += line_height
+        if address and address.strip():
+            address_display = address[:40] + "..." if len(address) > 40 else address
+            draw.text((text_start_x, y_pos), f"Address: {address_display}", fill='black', font=font_small)
+            y_pos += line_height
         
         # Centre name at bottom
         if centre_name:
@@ -5493,6 +5520,7 @@ async def get_id_cards(
                     "card_number": card.get("card_number", ""),
                     "course": card.get("course", ""),
                     "branch_code": card.get("branch_code", ""),
+                    "center": card.get("center", card.get("branch_name", "")),
                     "card_type": card.get("card_type", "student"),
                     "issue_date": card.get("issue_date", ""),
                     "expiry_date": card.get("expiry_date", ""),
@@ -5501,7 +5529,14 @@ async def get_id_cards(
                     "status": card.get("status", "active"),
                     "created_at": card.get("created_at", ""),
                     "photo_url": photo_url,
-                    "file_path": file_path
+                    "student_photo_url": card.get("student_photo_url", card.get("photo_url", "")),
+                    "student_photo": card.get("student_photo", ""),
+                    "file_path": file_path,
+                    "address": card.get("address", ""),
+                    "contact_no": card.get("contact_no", card.get("mobile", "")),
+                    "course_duration": card.get("course_duration", card.get("duration", "")),
+                    "duration": card.get("duration", card.get("course_duration", "")),
+                    "center_name": card.get("center_name", "")
                 })
             except Exception as card_error:
                 logger.error(f"Error formatting card {card.get('_id')}: {card_error}")
@@ -6920,7 +6955,8 @@ async def generate_student_marksheet(request: Request, current_user: dict = Depe
         course_id = body.get("course_id")
         semester = body.get("semester")
         session_year = body.get("session_year")
-        subjects = body.get("subjects", [])
+        # Accept both 'subjects' and 'subjects_results' from frontend
+        subjects_results = body.get("subjects_results", body.get("subjects", []))
         status = body.get("status", "draft")
         result = body.get("result", "pass")
         
@@ -6929,6 +6965,7 @@ async def generate_student_marksheet(request: Request, current_user: dict = Depe
         
         logger.info(f"[MARKSHEET] Looking for student with ID: {student_id}")
         logger.info(f"[MARKSHEET] Using branch_code: {branch_code}")
+        logger.info(f"[MARKSHEET] Received {len(subjects_results)} subjects")
         
         # Validate and convert student_id to ObjectId
         try:
@@ -7029,15 +7066,24 @@ async def generate_student_marksheet(request: Request, current_user: dict = Depe
         if branch:
             branch_name = branch.get("centre_info", {}).get("centre_name", "Unknown Branch")
         
-        # Calculate totals
+        # Calculate totals from subjects_results
         total_full_marks = 0
         total_obtained_marks = 0
         
-        for subject in subjects:
-            full_marks = float(subject.get("full_marks", 0))
-            obtained_marks = float(subject.get("obtained_marks", 0))
-            total_full_marks += full_marks
-            total_obtained_marks += obtained_marks
+        logger.info(f"[MARKSHEET] Calculating totals from {len(subjects_results)} subjects")
+        for subject in subjects_results:
+            # Support both old format (full_marks/obtained_marks) and new format (theory_marks/theory_max)
+            theory_max = float(subject.get("theory_max", subject.get("full_marks", 0)))
+            theory_marks = float(subject.get("theory_marks", subject.get("obtained_marks", 0)))
+            practical_max = float(subject.get("practical_max", 0))
+            practical_marks = float(subject.get("practical_marks", 0))
+            
+            total_full_marks += theory_max + practical_max
+            total_obtained_marks += theory_marks + practical_marks
+            
+            logger.info(f"[MARKSHEET] Subject: {subject.get('subject_name', subject.get('name', 'Unknown'))}, Theory: {theory_marks}/{theory_max}, Practical: {practical_marks}/{practical_max}")
+        
+        logger.info(f"[MARKSHEET] Total: {total_obtained_marks}/{total_full_marks}")
         
         # Calculate percentage and grade
         percentage = (total_obtained_marks / total_full_marks * 100) if total_full_marks > 0 else 0
@@ -7078,6 +7124,7 @@ async def generate_student_marksheet(request: Request, current_user: dict = Depe
             "branch_name": branch_name,
             "marksheet_number": marksheet_number,
             "photo_url": body.get("photo_url") or student.get("photo_url") or student.get("photo") or student.get("student_photo") or "",
+            "student_photo": body.get("student_photo") or body.get("photo_url") or student.get("photo_url") or student.get("photo") or student.get("student_photo") or "",
             "father_name": body.get("father_name") or student.get("father_name", ""),
             "mother_name": body.get("mother_name") or student.get("mother_name", ""),
             "atc_name": body.get("atc_name") or branch_name,
@@ -7086,7 +7133,8 @@ async def generate_student_marksheet(request: Request, current_user: dict = Depe
             "sr_number": body.get("sr_number") or marksheet_number,
             "join_date": body.get("join_date") or student.get("date_of_admission", ""),
             "issue_date": body.get("issue_date") or datetime.now().strftime("%d/%m/%Y"),
-            "subjects": subjects,
+            "subjects_results": subjects_results,  # Store subjects_results with correct structure
+            "subjects": subjects_results,  # Also store as 'subjects' for backward compatibility
             "total_marks": total_full_marks,
             "obtained_marks": total_obtained_marks,
             "percentage": round(percentage, 2),
@@ -7099,21 +7147,29 @@ async def generate_student_marksheet(request: Request, current_user: dict = Depe
         
         # Always generate marksheet image (removed published check)
         # Create file path
-        os.makedirs("uploads/Marksheet/generated", exist_ok=True)
-        image_filename = f"marksheet_{marksheet_number}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        image_path = os.path.join("uploads", "Marksheet", "generated", image_filename)
+        # Ensure uploads folder is absolute (c:\path\to\project\Backend\uploads)
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if not os.path.exists(os.path.join(BASE_DIR, "uploads")):
+             # Fallback if uploads is not in Backend but in project root
+             BASE_DIR = os.path.dirname(BASE_DIR)
+             
+        UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
+        if not os.path.exists(UPLOADS_DIR):
+            UPLOADS_DIR = os.path.join(os.getcwd(), "uploads")
+            
+        # Absolute path for saving
+        marksheet_gen_dir = os.path.join(UPLOADS_DIR, "Marksheet", "generated")
+        os.makedirs(marksheet_gen_dir, exist_ok=True)
         
-        # Prepare data for image generation using service function format
-        # Convert subjects to subjects_results format expected by service
-        subjects_results = []
-        for subj in subjects:
-            subjects_results.append({
-                "subject_name": subj.get("name", ""),
-                "theory_marks": float(subj.get("obtained_marks", 0)),
-                "theory_max": float(subj.get("full_marks", 100)),
-                "practical_marks": 0,
-                "practical_max": 0
-            })
+        image_filename = f"marksheet_{marksheet_number}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        image_path_abs = os.path.join(marksheet_gen_dir, image_filename)
+        
+        # Store relative path with forward slashes in DB for frontend compatibility
+        image_path = f"uploads/Marksheet/generated/{image_filename}"
+        
+        # subjects_results is already in the correct format from frontend
+        # No need to convert - it already has subject_name, theory_marks, theory_max, practical_marks, practical_max
+        logger.info(f"[MARKSHEET] Using subjects_results for image generation: {len(subjects_results)} subjects")
         
         # Get photo URL from request body first, then fallback to student record, then find in uploads folder
         photo_url = body.get("photo_url") or student.get("photo_url") or student.get("photo") or student.get("student_photo") or ""
@@ -7121,7 +7177,7 @@ async def generate_student_marksheet(request: Request, current_user: dict = Depe
         # If photo_url is still empty, try to find a photo in uploads/student_photos folder
         if not photo_url:
             import glob
-            student_photos_dir = os.path.join("uploads", "student_photos")
+            student_photos_dir = os.path.join(UPLOADS_DIR, "student_photos")
             if os.path.exists(student_photos_dir):
                 # Find photos matching this student ID
                 pattern = os.path.join(student_photos_dir, f"student_{student_id}_*.jpg")
@@ -7134,7 +7190,9 @@ async def generate_student_marksheet(request: Request, current_user: dict = Depe
                     # Sort by modification time and get the latest
                     matching_photos.sort(key=os.path.getmtime, reverse=True)
                     latest_photo = matching_photos[0]
-                    photo_url = latest_photo.replace("\\", "/")
+                    # Convert absolute path to relative path for URL logic
+                    rel_path = os.path.relpath(latest_photo, BASE_DIR)
+                    photo_url = rel_path.replace("\\", "/")
                     logger.info(f"[MARKSHEET] Found existing photo for student: {photo_url}")
         
         logger.info(f"[MARKSHEET] Photo URL for marksheet: {photo_url}")
@@ -7145,6 +7203,10 @@ async def generate_student_marksheet(request: Request, current_user: dict = Depe
         # Use subjects_results from request body if provided, otherwise use subjects_results generated above
         final_subjects_results = body.get("subjects_results") or subjects_results
         logger.info(f"[MARKSHEET] Subjects results: {final_subjects_results}")
+        
+        # CRITICAL: Always use FIXED marksheet template - NEVER accept from request body
+        # This prevents student photos or arbitrary files from being used as templates
+        FIXED_MARKSHEET_TEMPLATE = "uploads/Marksheet/marksheet.jpeg"
         
         marksheet_data_for_image = {
             "student_name": body.get("student_name") or student.get("student_name"),
@@ -7166,15 +7228,21 @@ async def generate_student_marksheet(request: Request, current_user: dict = Depe
             "grade": body.get("overall_grade") or body.get("grade", grade),
             "result": result,
             "photo_url": photo_url,
-            "template_path": body.get("template_path")
+            # FORCE FIXED TEMPLATE - ignore any template_path from request
+            "template_path": FIXED_MARKSHEET_TEMPLATE
         }
         
-        logger.info(f"[MARKSHEET] Marksheet data for image: {marksheet_data_for_image}")
+        logger.info(f"[MARKSHEET] 🔒 ENFORCING FIXED TEMPLATE: {FIXED_MARKSHEET_TEMPLATE}")
+        logger.info(f"[MARKSHEET] Student photo URL (for passport photo only): {photo_url}")
         
-        # Generate marksheet image using service function
-        success = await service_generate_marksheet_image(marksheet_data_for_image, image_path)
+        logger.info(f"[MARKSHEET] Marksheet data for image: {marksheet_data_for_image}")
+        logger.info(f"[MARKSHEET] Saving to absolute path: {image_path_abs}")
+        
+        # Generate marksheet image using service function with ABSOLUTE path
+        success = await service_generate_marksheet_image(marksheet_data_for_image, image_path_abs)
         
         if success:
+            # Store RELATIVE path in DB
             marksheet_doc["file_path"] = image_path
         
         # Insert marksheet
@@ -7395,6 +7463,26 @@ async def get_branch_marksheets(request: Request, current_user: dict = Depends(g
         # Format marksheets for response
         marksheet_list = []
         for ms in marksheets:
+            # Recalculate marks from subjects if they're 0 or missing (fixes old marksheets)
+            total_marks = ms.get("total_marks", 0)
+            obtained_marks = ms.get("obtained_marks", 0)
+            percentage = ms.get("percentage", 0)
+            
+            # If marks are 0, recalculate from subjects_results
+            if total_marks == 0 or obtained_marks == 0:
+                subjects_results = ms.get("subjects_results", ms.get("subjects", []))
+                if subjects_results:
+                    # Recalculate from subjects
+                    total_marks = sum(
+                        int(s.get("theory_max", 0)) + int(s.get("practical_max", 0))
+                        for s in subjects_results
+                    )
+                    obtained_marks = sum(
+                        int(s.get("theory_marks", 0)) + int(s.get("practical_marks", 0))
+                        for s in subjects_results
+                    )
+                    percentage = round((obtained_marks / total_marks * 100), 2) if total_marks > 0 else 0
+            
             marksheet_list.append({
                 "id": str(ms["_id"]),
                 "student_id": ms.get("student_id"),
@@ -7406,9 +7494,9 @@ async def get_branch_marksheets(request: Request, current_user: dict = Depends(g
                 "session_year": ms.get("session_year"),
                 "marksheet_number": ms.get("marksheet_number"),
                 "subjects": ms.get("subjects", []),
-                "total_marks": ms.get("total_marks"),
-                "obtained_marks": ms.get("obtained_marks"),
-                "percentage": ms.get("percentage"),
+                "total_marks": total_marks,  # Use recalculated value
+                "obtained_marks": obtained_marks,  # Use recalculated value
+                "percentage": percentage,  # Use recalculated value
                 "grade": ms.get("grade"),
                 "result": ms.get("result"),
                 "status": ms.get("status"),

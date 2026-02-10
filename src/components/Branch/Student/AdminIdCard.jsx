@@ -683,6 +683,12 @@ const AdminIdCard = () => {
       return;
     }
 
+    // REQUIRE photo for ID card generation
+    if (!formData.photo || !formData.photoPreview) {
+      alert('⚠️ Student photo is required to generate ID card!\n\nPlease upload a photo before creating the ID card.');
+      return;
+    }
+
     setSubmitting(true);
     try {
       console.log('💾 [ID CARD] Saving student:', formData);
@@ -697,7 +703,7 @@ const AdminIdCard = () => {
         date_of_birth: formData.date_of_birth,
         contact_no: formData.contact_no,
         email_id: formData.email_id,
-        password: formData.password || 'password123',
+        password: formData.password || '',
         admission_year: formData.admission_year,
         course: formData.course,
         batch: formData.batch || 'Default',
@@ -730,17 +736,33 @@ const AdminIdCard = () => {
         avatar: formData.photoPreview
       };
 
-      // Upload photo if provided
+      // Upload photo if provided - THIS MUST SUCCEED for ID card generation
+      let uploadedPhotoUrl = null;
       if (formData.photo && savedStudent.id) {
         try {
-          const photoUploadResult = await branchStudentService.uploadStudentPhoto(savedStudent.id, formData.photo);
-          console.log('✅ [ID CARD] Photo uploaded, result:', photoUploadResult);
+          console.log('📸 [ID CARD] Uploading student photo...');
+          const token = localStorage.getItem('access_token') || localStorage.getItem('token');
 
-          // Use the actual photo URL from backend, not the base64 preview
-          const uploadedPhotoUrl = photoUploadResult.photo_url || photoUploadResult.photoUrl || photoUploadResult.url;
+          // Upload photo as multipart/form-data
+          const photoFormData = new FormData();
+          photoFormData.append('photo', formData.photo); // Key must be 'photo' to match backend
+          photoFormData.append('student_id', savedStudent.id); // Backend requires student_id in form data
 
-          if (uploadedPhotoUrl) {
-            console.log('📸 [ID CARD] Using uploaded photo URL:', uploadedPhotoUrl);
+          // Use correct endpoint from branch.py
+          const photoUploadResponse = await fetch(`http://localhost:4000/api/branch/students/upload-photo`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+            body: photoFormData
+          });
+
+          if (photoUploadResponse.ok) {
+            const photoResult = await photoUploadResponse.json();
+            uploadedPhotoUrl = photoResult.photo_url || photoResult.url || photoResult.file_path;
+            console.log('✅ [ID CARD] Photo uploaded successfully:', uploadedPhotoUrl);
+
+            // Update saved student with photo URL
             savedStudent.photo = uploadedPhotoUrl;
             savedStudent.photoPreview = uploadedPhotoUrl;
             savedStudent.student_photo = uploadedPhotoUrl;
@@ -748,31 +770,22 @@ const AdminIdCard = () => {
             savedStudent.profile_image = uploadedPhotoUrl;
             savedStudent.student_photo_url = uploadedPhotoUrl;
           } else {
-            console.warn('⚠️ [ID CARD] No photo URL in upload response, using base64 preview');
-            savedStudent.photo = formData.photoPreview;
-            savedStudent.photoPreview = formData.photoPreview;
-            savedStudent.student_photo = formData.photoPreview;
-            savedStudent.photo_url = formData.photoPreview;
-            savedStudent.profile_image = formData.photoPreview;
-            savedStudent.student_photo_url = formData.photoPreview;
+            const errorText = await photoUploadResponse.text();
+            console.error('❌ [ID CARD] Photo upload failed:', photoUploadResponse.status, errorText);
+            throw new Error(`Photo upload failed: ${errorText}`);
           }
-
         } catch (photoError) {
-          console.warn('⚠️ [ID CARD] Photo upload failed:', photoError);
-          // Use base64 preview as fallback
-          savedStudent.photo = formData.photoPreview;
-          savedStudent.photoPreview = formData.photoPreview;
-          savedStudent.student_photo = formData.photoPreview;
-          savedStudent.photo_url = formData.photoPreview;
-          savedStudent.profile_image = formData.photoPreview;
-          savedStudent.student_photo_url = formData.photoPreview;
+          console.error('❌ [ID CARD] Photo upload error:', photoError);
+          alert(`Failed to upload photo: ${photoError.message}\n\nPlease try again or contact support.`);
+          setSubmitting(false);
+          return; // Stop here if photo upload fails
         }
       }
 
-      // Create ID card record in database
-      if (savedStudent.id) {
+      // Create ID card record in database - ONLY if photo was uploaded successfully
+      if (savedStudent.id && uploadedPhotoUrl) {
         try {
-          console.log('💾 [ID CARD] Creating ID card record for new student...');
+          console.log('💾 [ID CARD] Creating ID card with uploaded photo...');
           const token = localStorage.getItem('access_token') || localStorage.getItem('token');
 
           const idCardPayload = {
@@ -780,18 +793,16 @@ const AdminIdCard = () => {
             student_name: savedStudent.student_name,
             registration_number: savedStudent.registration_number,
             branch_code: branchCode,
-            card_number: `ID-${savedStudent.registration_number}`,
-            issue_date: new Date().toISOString(),
-            expiry_date: new Date(Date.now() + (2 * 365 * 24 * 60 * 60 * 1000)).toISOString(), // 2 years from now
-            status: 'active',
             card_type: 'student',
-            photo_url: savedStudent.photoPreview || savedStudent.photo_url,
-            student_photo_url: savedStudent.photoPreview || savedStudent.photo_url  // Add this field for student photo
+            photo_url: uploadedPhotoUrl,  // Use the uploaded photo URL
+            address: savedStudent.address,
+            duration: savedStudent.duration
           };
 
-          console.log('📤 [ID CARD] Saving ID card to database:', idCardPayload);
+          console.log('📤 [ID CARD] Generating ID card:', idCardPayload);
 
-          const idCardResponse = await fetch('http://localhost:4000/api/branch/id-cards', {
+          // Use the /generate endpoint which creates AND generates the ID card
+          const idCardResponse = await fetch('http://localhost:4000/api/branch/id-cards/generate', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -802,19 +813,29 @@ const AdminIdCard = () => {
 
           if (idCardResponse.ok) {
             const savedIdCard = await idCardResponse.json();
-            console.log('✅ [ID CARD] ID card saved to database:', savedIdCard);
+            console.log('✅ [ID CARD] ID card generated successfully:', savedIdCard);
             savedStudent.id_card = savedIdCard;
             savedStudent.has_id_card = true;
           } else {
             const errorText = await idCardResponse.text();
-            console.error('❌ [ID CARD] Failed to save ID card to database:', idCardResponse.status, errorText);
+            console.error('❌ [ID CARD] Failed to generate ID card:', idCardResponse.status, errorText);
+            alert(`ID card generation failed: ${errorText}\n\nStudent was created but ID card generation failed. You can try generating it again from the student list.`);
           }
         } catch (idCardError) {
           console.error('❌ [ID CARD] ID card creation error:', idCardError);
+          alert(`ID card generation error: ${idCardError.message}\n\nStudent was created but ID card generation failed.`);
         }
       }
 
-      alert('Student and ID Card created successfully!');
+      // Show success message
+      if (uploadedPhotoUrl && savedStudent.has_id_card) {
+        alert('✅ Student and ID Card created successfully!');
+      } else if (uploadedPhotoUrl) {
+        alert('✅ Student created successfully!\n\n⚠️ ID card generation failed. You can try generating it again from the student list.');
+      } else {
+        alert('✅ Student created successfully!\n\n⚠️ Photo upload failed. Please upload a photo and generate the ID card manually.');
+      }
+
       setIsAddModalOpen(false);
 
       // Force reload students to get fresh data
@@ -997,11 +1018,11 @@ const AdminIdCard = () => {
           return validDuration || 'N/A';
         })(),
         center: student.center || student.branch || branchName || 'N/A',
-        address: student.id_card?.address || student.address || 'N/A',
+        address: student.id_card?.address || student.address || '',
         contact_no: student.contact_no || student.phone || student.mobile || 'N/A',
         email_id: student.email_id || student.email || '',
-        father_name: student.father_name || 'N/A',
-        mother_name: student.mother_name || 'N/A',
+        father_name: student.father_name || '',
+        mother_name: student.mother_name || '',
         date_of_admission: student.date_of_admission || student.admission_date || '',
         // Ensure photo URLs are properly validated and accessible
         photo: photoUrl && photoUrl !== '' && photoUrl !== 'N/A' ? photoUrl : null,
@@ -2371,46 +2392,16 @@ const AdminIdCard = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Branch *
                     </label>
-                    <select
-                      value={formData.center}
-                      onChange={(e) => handleFormChange('center', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    >
-                      <option value="">Select Branch</option>
-                      {branchesLoading ? (
-                        <option disabled>Loading branches...</option>
-                      ) : branches.length === 0 ? (
-                        <option value={branchName}>{branchName}</option>
-                      ) : (
-                        branches.map((branch, index) => {
-                          const centreName = branch.centre_info?.centre_name ||
-                            branch.centre_name ||
-                            branch.name ||
-                            branch.branch_name ||
-                            `Branch ${index + 1}`;
-                          const centreCode = branch.centre_info?.branch_code ||
-                            branch.centre_info?.code ||
-                            branch.branch_code ||
-                            branch.franchise_code ||
-                            branch.code ||
-                            '';
-                          return (
-                            <option
-                              key={branch._id || branch.id || index}
-                              value={centreName}
-                            >
-                              {centreName} {centreCode ? `(${centreCode})` : ''}
-                            </option>
-                          );
-                        })
-                      )}
-                    </select>
-                    {branches.length > 0 && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        {branches.length} branch{branches.length !== 1 ? 'es' : ''} available
-                      </p>
-                    )}
+                    <input
+                      type="text"
+                      value={formData.center || branchName}
+                      readOnly
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700 cursor-not-allowed"
+                      placeholder="Current Branch"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      ✓ Student will be assigned to your current branch
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -2423,6 +2414,57 @@ const AdminIdCard = () => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Enter address"
                       required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Password
+                    </label>
+                    <input
+                      type="text" // Visible text so admin knows what they are setting
+                      value={formData.password}
+                      onChange={(e) => handleFormChange('password', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Set password (e.g. 846789)"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Leave blank to keep existing password (edit) or auto-generate (new)
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Email ID
+                    </label>
+                    <input
+                      type="email"
+                      value={formData.email_id}
+                      onChange={(e) => handleFormChange('email_id', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter email address"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Father Name
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.father_name}
+                      onChange={(e) => handleFormChange('father_name', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter father's name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Mother Name
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.mother_name}
+                      onChange={(e) => handleFormChange('mother_name', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter mother's name"
                     />
                   </div>
                   <div>

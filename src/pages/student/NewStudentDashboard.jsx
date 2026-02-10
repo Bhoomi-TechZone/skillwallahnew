@@ -930,13 +930,6 @@ const NewStudentDashboard = () => {
                                     <span className="mr-2">▶️</span>
                                     Start Test
                                   </button>
-                                  <button
-                                    onClick={() => viewQuestionPaper(paper.id, paper.name)}
-                                    className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold bg-blue-100 hover:bg-blue-200 text-blue-700 transition-colors"
-                                  >
-                                    <span className="mr-2">👁️</span>
-                                    View Questions
-                                  </button>
                                 </div>
                               </div>
                             </div>

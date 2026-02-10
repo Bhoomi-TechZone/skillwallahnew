@@ -209,11 +209,64 @@ async def get_course_progress(request: Request, course_id: str, current_user = D
                         "score": stats.get("completion_percentage", 100),
                         "certificate_number": certificate_number,
                         "created_at": datetime.utcnow(),
-                        "updated_at": datetime.utcnow()
+                        "updated_at": datetime.utcnow(),
+                        # Add file_path field for download functionality
+                        "file_path": None,  # Will be generated when downloaded
+                        "is_unlocked": True  # Auto-unlock since requirements are met
                     }
                     
                     result = db.certificates.insert_one(cert_doc)
                     logger.info(f"Certificate created with ID: {result.inserted_id}, Number: {certificate_number}")
+                    
+                    # Generate the actual certificate file
+                    try:
+                        from app.services.certificate_service import generate_certificate_image
+                        import os
+                        
+                        # Create file path for the certificate
+                        cert_dir = os.path.join("uploads", "Certificate", "generated")
+                        os.makedirs(cert_dir, exist_ok=True)
+                        file_path = os.path.join(cert_dir, f"certificate_{certificate_number}.png")
+                        
+                        # Prepare certificate data for image generation
+                        cert_data = {
+                            "student_name": cert_doc["student_name"],
+                            "student_registration": str(user_obj_id),  # Use user ID as registration
+                            "course_name": cert_doc["course_name"],
+                            "course_duration": cert_doc["course_duration"],
+                            "certificate_number": certificate_number,
+                            "certificate_type": "completion",
+                            "grade": "A",  # Default grade
+                            "issue_date": completion_date,
+                            "completion_date": completion_date,
+                            "start_date": None,  # Not available
+                            "father_name": "",  # Not available
+                            "date_of_birth": "",  # Not available
+                            "percentage": cert_doc["score"],
+                            "atc_code": "",  # Not available
+                            "center_name": "SkillWallah EdTech",
+                            "center_address": "",
+                            "photo_url": None,
+                            "sr_number": "",
+                            "mca_registration_number": "U85300UP2020NPL136478"
+                        }
+                        
+                        # Generate the certificate image
+                        success = await generate_certificate_image(cert_data, file_path)
+                        if success:
+                            # Update the certificate with the file path
+                            db.certificates.update_one(
+                                {"_id": result.inserted_id},
+                                {"$set": {"file_path": file_path}}
+                            )
+                            logger.info(f"Certificate file generated and saved: {file_path}")
+                        else:
+                            logger.error(f"Failed to generate certificate file for certificate {result.inserted_id}")
+                            
+                    except Exception as gen_error:
+                        logger.error(f"Error generating certificate file: {str(gen_error)}")
+                        # Don't fail the entire process if file generation fails
+                    
                     stats["certificate_generated"] = True
                     stats["certificate_id"] = str(result.inserted_id)
                     stats["certificate_number"] = certificate_number
@@ -352,78 +405,4 @@ async def batch_update_progress(request: Request, data: BatchProgressUpdate, cur
     except Exception as e:
         logger.error(f"Error in batch update: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
-@progress_router.post("/progress/test-data")
-async def add_test_progress_data(request: Request, current_user = Depends(get_authenticated_user)):
-    """Add some test progress data for testing the progress display"""
-    try:
-        current_user_id = current_user.get("id") or current_user.get("user_id")
-        if not current_user_id:
-            raise HTTPException(status_code=401, detail="User not authenticated")
-        
-        db = request.app.mongodb
-        
-        # Get user's enrolled courses
-        from bson import ObjectId
-        enrollments = db.enrollments.find({"student_id": ObjectId(current_user_id)})
-        
-        results = []
-        for enrollment in enrollments:
-            course_id = str(enrollment.get("course_id"))
-            course = db.courses.find_one({"_id": enrollment.get("course_id")})
-            
-            if course:
-                # Add some dummy progress data (like the user watched 50% of a video)
-                progress = upsert_user_progress(
-                    db=db,
-                    user_id=current_user_id,
-                    course_id=course_id,
-                    module_id="test-module-1",
-                    content_id="test-video-1",
-                    content_type="video",
-                    watched_duration=300.0,  # 5 minutes watched
-                    total_duration=600.0,    # 10 minutes total (50% progress)
-                    completed=False
-                )
-                
-                # Add another completed content
-                progress2 = upsert_user_progress(
-                    db=db,
-                    user_id=current_user_id,
-                    course_id=course_id,
-                    module_id="test-module-1",
-                    content_id="test-video-2",
-                    content_type="video",
-                    watched_duration=600.0,  # 10 minutes watched
-                    total_duration=600.0,    # 10 minutes total (100% progress)
-                    completed=True
-                )
-                
-                results.append({
-                    "course_id": course_id,
-                    "course_title": course.get("title"),
-                    "progress_added": [progress, progress2]
-                })
-        
-        # Recalculate stats for all courses
-        stats_results = []
-        for enrollment in db.enrollments.find({"student_id": ObjectId(current_user_id)}):
-            course_id = str(enrollment.get("course_id"))
-            stats = get_course_completion_stats(db, current_user_id, course_id)
-            stats_results.append({
-                "course_id": course_id,
-                "stats": stats
-            })
-        
-        return {
-            "success": True,
-            "message": "Test progress data added successfully",
-            "results": results,
-            "recalculated_stats": stats_results
-        }
-        
-    except Exception as e:
-        logger.error(f"Error adding test progress data: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
 

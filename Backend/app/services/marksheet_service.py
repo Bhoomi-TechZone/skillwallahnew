@@ -72,6 +72,37 @@ async def generate_marksheet_image(marksheet_data: dict, output_path: str) -> bo
             # Clean up the path (remove leading slashes or excessive dots)
             clean_path = custom_template_path.replace("\\", "/").strip("/")
             
+            # CRITICAL DEBUG: Log what we received
+            print(f"[MARKSHEET] ⚠️ TEMPLATE DEBUG - Received: {custom_template_path}")
+            print(f"[MARKSHEET] ⚠️ TEMPLATE DEBUG - Cleaned: {clean_path}")
+            
+            # CRITICAL SECURITY: Reject if template path looks like a student photo
+            photo_indicators = ['student_photos', 'profile_photo', 'id_cards', 'student_', 'photo']
+            is_photo = any(indicator in clean_path.lower() for indicator in photo_indicators)
+            
+            # Also check file extension - if it's in student_photos or similar, reject it
+            if is_photo or (clean_path.lower().endswith(('.jpg', '.jpeg', '.png')) and 'Marksheet' not in clean_path):
+                print(f"[MARKSHEET] 🚨 SECURITY ALERT: Template path looks like a student photo!")
+                print(f"[MARKSHEET] 🚨 REJECTING: {clean_path}")
+                print(f"[MARKSHEET] 🔒 FORCING DEFAULT TEMPLATE")
+                clean_path = "uploads/Marksheet/marksheet.jpeg"
+            
+            # SECURITY: Validate template path to prevent arbitrary file access
+            allowed_templates = [
+                "uploads/Marksheet/marksheet.jpeg",
+                "uploads/Marksheet/Marksheet.jpeg", 
+                "uploads/Marksheet/marksheet.jpg",
+                "uploads/Marksheet/marksheet.png"
+            ]
+            
+            # If the path is not in allowed templates, force the default
+            if clean_path.lower() not in [t.lower() for t in allowed_templates]:
+                print(f"[MARKSHEET] ⚠️ WARNING: Unauthorized template path: {clean_path}")
+                print(f"[MARKSHEET] 🔒 FORCING DEFAULT TEMPLATE")
+                clean_path = "uploads/Marksheet/marksheet.jpeg"
+            
+            print(f"[MARKSHEET] ✅ VALIDATED template: {clean_path}")
+            
             # Remove 'london_lms/' prefix if present, as BASE_DIR usually points to project root
             if clean_path.startswith("london_lms/"):
                 clean_path = clean_path.replace("london_lms/", "", 1)
@@ -307,7 +338,7 @@ async def generate_marksheet_image(marksheet_data: dict, output_path: str) -> bo
         # STUDENT PHOTO (Right side of student details)
         # Position: approximately (1035, 430) based on template
         # ---------------------------------------
-        photo_url = marksheet_data.get("photo_url") or ""
+        photo_url = marksheet_data.get("photo_url") or marksheet_data.get("student_photo") or ""
         print(f"[MARKSHEET] Photo URL received: {photo_url}")
 
         if photo_url and photo_url.strip():

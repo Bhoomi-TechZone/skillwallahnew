@@ -32,15 +32,14 @@ export const generateMarksheet = async (studentData, branchData = null) => {
   try {
     console.log('📊 [MARKSHEET] Generating marksheet with FIXED template for:', studentData);
 
-    // Determine template path - prefer provided path over fixed default
-    let templatePath = FIXED_MARKSHEET_TEMPLATE_PATH;
-
-    if (branchData && branchData.template) {
-      templatePath = branchData.template;
-      console.log('🔄 [MARKSHEET] Using template from branchData:', templatePath);
-    } else if (studentData && studentData.template_path) {
-      templatePath = studentData.template_path;
-      console.log('🔄 [MARKSHEET] Using template from studentData:', templatePath);
+    // Always use the fixed marksheet template - never use student photos
+    const templatePath = FIXED_MARKSHEET_TEMPLATE_PATH;
+    console.log('🔒 [MARKSHEET] Using FIXED template path:', templatePath);
+    
+    // Ignore any student photo or template paths to prevent student images from being used as templates
+    if (studentData && (studentData.student_photo || studentData.photo)) {
+      console.log('⚠️ [MARKSHEET] Student photo found but will NOT be used as template');
+      console.log('📋 [MARKSHEET] Student photo URL:', studentData.student_photo || studentData.photo);
     }
 
     // Construct full URL

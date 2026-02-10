@@ -57,11 +57,16 @@ async def get_questions(
     course: Optional[str] = Query(None),
     difficulty: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    paper_set_id: Optional[str] = Query(None)
+    paper_set_id: Optional[str] = Query(None),
+    paperId: Optional[str] = Query(None)
 ):
     """Get all questions with pagination and filters"""
     try:
         print(f"🔍 Fetching questions - page: {page}, limit: {limit}")
+        
+        # Handle parameter alias
+        if paperId and not paper_set_id:
+            paper_set_id = paperId
         
         # Get database and branch context using MultiTenantManager
         db = request.app.mongodb
