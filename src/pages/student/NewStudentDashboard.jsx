@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { getUserData } from '../../utils/authUtils';
 import { logout } from '../../utils/enhancedAuthUtils';
+import moment from 'moment';
 import branchStudentDashboardService from '../../services/branchStudentDashboardService';
 import StudentProfile from './StudentProfile';
 import StudentStudyMaterial from './StudentStudyMaterial';
@@ -67,9 +68,17 @@ const NewStudentDashboard = () => {
   const location = useLocation();
   const [studentData, setStudentData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeMenuItem, setActiveMenuItem] = useState('Dashboard');
+  const [activeMenuItem, setActiveMenuItem] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('tab')) return params.get('tab');
+    if (window.location.pathname.includes('/student/test-result/')) return 'Results';
+    return 'Dashboard';
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeTestId, setActiveTestId] = useState(null);
+  const [activeTestId, setActiveTestId] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('testId') || null;
+  });
   const [testSearchQuery, setTestSearchQuery] = useState('');
   const [userData, setUserData] = useState(null);
   const [showIdCard, setShowIdCard] = useState(false);
@@ -84,11 +93,14 @@ const NewStudentDashboard = () => {
     pendingTests: 0
   });
 
+  const [liveSessions, setLiveSessions] = useState([]);
+
   useEffect(() => {
     const loadAllData = async () => {
       await loadStudentData();
       await loadQuestionPapers();
       await loadStudyMaterials();
+      await loadLiveSessions();
       // Update final stats after all data is loaded
       updateFinalStats();
     };
@@ -130,12 +142,27 @@ const NewStudentDashboard = () => {
     fetchBranchProfile();
   }, [studentData?.course?.branch, userData?.branch_code]);
 
-  // Check if accessed via test-result route and set active menu to Results
+  // Sync state with URL changes (handles Back/Forward and direct URL access)
   useEffect(() => {
-    if (location.pathname.includes('/student/test-result/')) {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    const testId = params.get('testId');
+
+    if (tab) {
+      setActiveMenuItem(tab);
+    } else if (location.pathname.includes('/student/test-result/')) {
       setActiveMenuItem('Results');
+    } else if (!tab && activeMenuItem !== 'Dashboard' && !location.pathname.includes('/student/test-result/')) {
+      // If no tab param and we are not on a special route, default to Dashboard (only if we need reset)
+      // But be careful not to override if we are setting initial state. 
+      // Actually, if URL has no tab, we should show Dashboard.
+      setActiveMenuItem('Dashboard');
     }
-  }, [location.pathname]);
+
+    if (testId) {
+      setActiveTestId(testId);
+    }
+  }, [location.search, location.pathname]);
 
   // Reset showIdCard when switching away from Profile
   useEffect(() => {
@@ -339,6 +366,31 @@ const NewStudentDashboard = () => {
     }
   };
 
+  const loadLiveSessions = async () => {
+    try {
+      const response = await branchStudentDashboardService.getLiveSessions();
+      if (response.success) {
+        // The API returns only live sessions, so we can directly set them
+        const liveSessions = response.sessions;
+
+        setLiveSessions(liveSessions);
+        console.log('🔴 Live Sessions Loaded:', liveSessions);
+      }
+    } catch (error) {
+      console.error('Failed to load live sessions', error);
+      setLiveSessions([]);
+    }
+  };
+
+  // Poll for live sessions every 30 seconds
+  useEffect(() => {
+    // Initial load is already done in main useEffect
+    const interval = setInterval(() => {
+      loadLiveSessions();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   const loadStudentData = async () => {
     try {
       setLoading(true);
@@ -496,8 +548,7 @@ const NewStudentDashboard = () => {
 
   const startTest = (testId, testName) => {
     console.log(`🚀 Starting test: ${testName} (ID: ${testId})`);
-    setActiveTestId(testId);
-    setActiveMenuItem('TestAttempt');
+    navigate(`?tab=TestAttempt&testId=${testId}`);
   };
 
   const viewQuestionPaper = (paperId, paperName) => {
@@ -549,7 +600,7 @@ const NewStudentDashboard = () => {
             <button
               key={item.id}
               onClick={() => {
-                setActiveMenuItem(item.id);
+                navigate(`?tab=${item.id}`);
                 setSidebarOpen(false);
               }}
               className={`w-full flex items-center px-4 py-3 rounded-lg text-left transition-all ${activeMenuItem === item.id
@@ -631,17 +682,41 @@ const NewStudentDashboard = () => {
             <StudentVideoClasses />
           ) : activeMenuItem === 'OnlineTest' ? (
             <StudentOnlineTest onStartTest={(testId) => {
-              setActiveTestId(testId);
-              setActiveMenuItem('TestAttempt');
+              navigate(`?tab=TestAttempt&testId=${testId}`);
             }} onViewResult={(resultId) => {
-              setActiveMenuItem('Results');
+              navigate('?tab=Results');
             }} />
           ) : activeMenuItem === 'TestAttempt' && activeTestId ? (
-            <StudentTestAttempt testId={activeTestId} onBack={() => setActiveMenuItem('OnlineTest')} />
+            <StudentTestAttempt testId={activeTestId} onBack={() => navigate('?tab=OnlineTest')} />
           ) : activeMenuItem === 'Results' ? (
             <StudentResults />
           ) : activeMenuItem === 'Dashboard' ? (
             <>
+              {/* Live Now Section */}
+              {liveSessions.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-2xl shadow-lg p-6 mb-6 animate-pulse">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-3 h-3 bg-red-600 rounded-full animate-ping"></div>
+                    <h2 className="text-xl font-bold text-red-700">Live Classes Now</h2>
+                  </div>
+                  <div className="space-y-4">
+                    {liveSessions.map(session => (
+                      <div key={session.session_id} className="bg-white p-4 rounded-xl shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between border border-red-100">
+                        <div>
+                          <h3 className="text-lg font-bold text-gray-900">{session.course_title}</h3>
+                        </div>
+                        <button
+                          onClick={() => navigate(`/student/live-class/${session.session_id}`)}
+                          className="mt-3 md:mt-0 bg-red-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-red-700 transition shadow-md flex items-center gap-2"
+                        >
+                          <span>Join Now</span> 🎥
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Student Info Card */}
               <div className="bg-gradient-to-br from-teal-50 via-white to-blue-50 rounded-2xl shadow-lg p-6 border border-teal-100">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

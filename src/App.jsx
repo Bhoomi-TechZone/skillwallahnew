@@ -66,6 +66,7 @@ const BatchManagement = lazy(() => import("./components/Branch/Courses/BatchMana
 const BranchBatch = lazy(() => import("./components/Branch/Courses/BranchBatch"));
 const AdminCertificatesMarksheets = lazy(() => import("./components/Branch/Marksheet&Certificate/AdminCertificatesMarksheets"));
 const BranchCertificatesMarksheets = lazy(() => import("./components/Branch/Marksheet&Certificate/AdminCertificatesMarksheets"));
+const LiveClasses = lazy(() => import("./components/LiveClasses/LiveClasses"));
 // Online Exam components
 const AdminPaperSet = lazy(() => import("./components/Branch/OnlineExam/AdminPaperSet"));
 const BranchPaperSet = lazy(() => import("./components/Branch/OnlineExam/BranchPaperSet"));
@@ -127,6 +128,7 @@ const InstructorDashboard = lazy(() => import("./pages/instructor/InstructorDash
 const StudentDashboard = lazy(() => import("./pages/student/StudentDashboard"));
 const NewStudentDashboard = lazy(() => import("./pages/student/NewStudentDashboard"));
 const StudentTestAttempt = lazy(() => import("./pages/student/StudentTestAttempt"));
+const StudentLiveClass = lazy(() => import("./pages/student/StudentLiveClass"));
 const MyCourses = lazy(() => import("./pages/MyCourses"));
 const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess"));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
@@ -312,6 +314,7 @@ const App = () => {
                 } />
                 <Route path="/student/test/:testId" element={<RoleBasedRoute allowedRoles={['student']}><StudentLayout><StudentTestAttempt /></StudentLayout></RoleBasedRoute>} />
                 <Route path="/student/test-result/:subjectName" element={<RoleBasedRoute allowedRoles={['student']}><NewStudentDashboard /></RoleBasedRoute>} />
+                <Route path="/student/live-class/:id" element={<RoleBasedRoute allowedRoles={['student']}><StudentLiveClass /></RoleBasedRoute>} />
                 <Route path="/instructor" element={<RoleBasedRoute allowedRoles={['instructor']}><InstructorDashboard /></RoleBasedRoute>} />
                 <Route path="/branch/dashboard" element={<RoleBasedRoute allowedRoles={['branch', 'admin', 'branch_admin']}><BranchDashboard /></RoleBasedRoute>} />
                 <Route path="/branch/admin-dashboard" element={<RoleBasedRoute allowedRoles={['admin', 'franchise_admin']}><AdminDashboard /></RoleBasedRoute>} />
@@ -373,6 +376,7 @@ const App = () => {
 
                 {/* Course Management Routes - Role-based */}
                 <Route path="/admin/courses/manage" element={<RoleBasedRoute allowedRoles={['admin', 'franchise_admin']}><CourseManagement /></RoleBasedRoute>} />
+                <Route path="/admin/courses/live-classes" element={<RoleBasedRoute allowedRoles={['admin', 'branch_admin']}><LiveClasses /></RoleBasedRoute>} />
                 <Route path="/branch/courses/courses" element={<RoleBasedRoute allowedRoles={['branch_admin']}><BranchCourses /></RoleBasedRoute>} />
 
                 {/* Subject Management Routes - Role-based */}

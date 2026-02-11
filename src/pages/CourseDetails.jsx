@@ -16,6 +16,7 @@ import {
 import axios from 'axios';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { fetchLiveSessions } from '../api/liveClassesApi';
 
 const CourseDetails = () => {
   const { courseId } = useParams();
@@ -26,9 +27,12 @@ const CourseDetails = () => {
   const [error, setError] = useState(null);
   const [enrolling, setEnrolling] = useState(false);
   const [enrolled, setEnrolled] = useState(false);
+  const [liveSessions, setLiveSessions] = useState([]);
+  const [loadingLiveSessions, setLoadingLiveSessions] = useState(false);
 
   useEffect(() => {
     fetchCourseDetails();
+    fetchLiveSessionsForCourse();
   }, [courseId]);
 
   const fetchCourseDetails = async () => {
@@ -60,6 +64,24 @@ const CourseDetails = () => {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchLiveSessionsForCourse = async () => {
+    setLoadingLiveSessions(true);
+    try {
+      const allLiveSessions = await fetchLiveSessions();
+      // Filter sessions that belong to this specific course
+      const courseLiveSessions = allLiveSessions.filter(session => 
+        session.course_id === courseId
+      );
+      setLiveSessions(courseLiveSessions);
+      console.log('Live sessions for course:', courseLiveSessions);
+    } catch (error) {
+      console.error('Error fetching live sessions for course:', error);
+      setLiveSessions([]);
+    } finally {
+      setLoadingLiveSessions(false);
     }
   };
 
@@ -440,7 +462,7 @@ const CourseDetails = () => {
 
             {/* Course Modules Preview */}
             {courseContent?.modules && courseContent.modules.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-lg border border-[#988913]/20 p-8">
+              <div className="bg-white rounded-2xl shadow-lg border border-[#988913]/20 p-8 mb-8">
                 <h2 className="text-2xl font-bold text-gray-900 mb-6">Course Content</h2>
                 <div className="space-y-3">
                   {courseContent.modules.map((module, index) => (
@@ -455,6 +477,31 @@ const CourseDetails = () => {
                         </div>
                       </div>
                       <BookOpenIcon className="w-5 h-5 text-gray-400" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Live Now Section for this course */}
+            {liveSessions.length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-2xl shadow-lg p-6 mb-8">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-3 h-3 bg-red-600 rounded-full animate-ping"></div>
+                  <h2 className="text-xl font-bold text-red-700">Live Classes Now</h2>
+                </div>
+                <div className="space-y-4">
+                  {liveSessions.map(session => (
+                    <div key={session.session_id} className="bg-white p-4 rounded-xl shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between border border-red-100">
+                      <div>
+                        <h3 className="text-lg font-bold text-gray-900">{session.course_title}</h3>
+                      </div>
+                      <button
+                        onClick={() => navigate(`/student/live-class/${session.session_id}`)}
+                        className="mt-3 md:mt-0 bg-red-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-red-700 transition shadow-md flex items-center gap-2"
+                      >
+                        <span>Join Now</span> 🎥
+                      </button>
                     </div>
                   ))}
                 </div>

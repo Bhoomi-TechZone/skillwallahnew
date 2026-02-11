@@ -1,21 +1,22 @@
 import { useState } from 'react';
 import {
-    FaAngleDown, FaAngleRight,
-    FaBell,
-    FaBook,
-    FaCertificate,
-    FaChalkboardTeacher,
-    FaChartBar, FaCog,
-    FaDollarSign,
-    FaFileAlt,
-    FaGraduationCap,
-    FaHeadset,
-    FaQuestionCircle,
-    FaShieldAlt,
-    FaSignOutAlt,
-    FaTachometerAlt,
-    FaUserGraduate,
-    FaUsers
+  FaAngleDown, FaAngleRight,
+  FaBell,
+  FaBook,
+  FaCertificate,
+  FaChalkboardTeacher,
+  FaChartBar, FaCog,
+  FaDollarSign,
+  FaFileAlt,
+  FaGraduationCap,
+  FaHeadset,
+  FaQuestionCircle,
+  FaShieldAlt,
+  FaSignOutAlt,
+  FaTachometerAlt,
+  FaUserGraduate,
+  FaUsers,
+  FaVideo
 } from 'react-icons/fa';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
@@ -72,7 +73,8 @@ const AdminSidebar = ({ isOpen, toggleSidebar, isCollapsed = false, isHovering =
       icon: FaBook,
       submenu: [
         { title: 'All Courses', path: '/admin/courses', icon: FaBook },
-        { title: 'Categories', path: '/admin/courses/categories', icon: FaGraduationCap }
+        { title: 'Categories', path: '/admin/courses/categories', icon: FaGraduationCap },
+        { title: 'Live Classes', path: '/admin/courses/live-classes', icon: FaVideo }
       ]
     },
     {
@@ -156,14 +158,14 @@ const AdminSidebar = ({ isOpen, toggleSidebar, isCollapsed = false, isHovering =
     <>
       {/* Mobile overlay */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
           onClick={toggleSidebar}
         />
       )}
 
       {/* Sidebar */}
-  <div className="fixed inset-y-0 left-0 z-50 w-full h-full bg-white shadow-xl border-r border-primary-100 lg:static lg:inset-0">
+      <div className="fixed inset-y-0 left-0 z-50 w-full h-full bg-white shadow-xl border-r border-primary-100 lg:static lg:inset-0">
         {/* Logo */}
         <div className="flex items-center justify-center h-16 border-b border-primary-100 bg-gradient-to-r from-primary-50 to-accent-50">
           {showFullContent ? (
@@ -182,11 +184,10 @@ const AdminSidebar = ({ isOpen, toggleSidebar, isCollapsed = false, isHovering =
                 {item.submenu ? (
                   <button
                     onClick={() => toggleMenu(item.key)}
-                    className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                      isActive(item) 
-                        ? 'bg-primary-100 text-primary-700 border-r-2 border-primary-600' 
-                        : 'text-secondary-700 hover:bg-primary-50 hover:text-primary-600'
-                    }`}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg transition-colors ${isActive(item)
+                      ? 'bg-primary-100 text-primary-700 border-r-2 border-primary-600'
+                      : 'text-secondary-700 hover:bg-primary-50 hover:text-primary-600'
+                      }`}
                   >
                     <div className="flex items-center">
                       <item.icon className="mr-3 h-5 w-5" />
@@ -201,11 +202,10 @@ const AdminSidebar = ({ isOpen, toggleSidebar, isCollapsed = false, isHovering =
                 ) : (
                   <Link
                     to={item.path}
-                    className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                      isActive(item)
-                        ? 'bg-primary-100 text-primary-700 border-r-2 border-primary-600'
-                        : 'text-secondary-700 hover:bg-primary-50 hover:text-primary-600'
-                    }`}
+                    className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${isActive(item)
+                      ? 'bg-primary-100 text-primary-700 border-r-2 border-primary-600'
+                      : 'text-secondary-700 hover:bg-primary-50 hover:text-primary-600'
+                      }`}
                   >
                     <item.icon className="mr-3 h-5 w-5" />
                     {item.title}
@@ -226,11 +226,10 @@ const AdminSidebar = ({ isOpen, toggleSidebar, isCollapsed = false, isHovering =
                           }));
                           navigate(subItem.path);
                         }}
-                        className={`w-full flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                          location.pathname === subItem.path
-                            ? 'bg-amber-50 text-amber-700'
-                            : 'text-gray-600 hover:bg-gray-50'
-                        }`}
+                        className={`w-full flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${location.pathname === subItem.path
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'text-gray-600 hover:bg-gray-50'
+                          }`}
                       >
                         <subItem.icon className="mr-3 h-4 w-4" />
                         {subItem.title}

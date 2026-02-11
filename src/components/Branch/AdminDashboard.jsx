@@ -61,30 +61,48 @@ const AdminDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [authError, setAuthError] = useState(false);
+  const [distributionView, setDistributionView] = useState('city'); // 'city', 'district', 'branch'
 
   // Generate chart data from dashboard stats and rawData
   const generateChartData = (stats, rawData = null) => {
-    // Use rawData if available for more accurate charts
+    // Check if backend provided charts
+    const backendCharts = stats.charts || {};
     const monthlyLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
     const currentMonth = new Date().getMonth();
 
+    const chartColors = [
+      '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+      '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#06b6d4'
+    ];
+
+    // Helper to generate chart data from dictionary
+    const generateDistChart = (data, label) => ({
+      labels: Object.keys(data),
+      datasets: [{
+        label: label,
+        data: Object.values(data),
+        backgroundColor: chartColors,
+        borderWidth: 0
+      }]
+    });
+
     return {
       monthlyProgress: {
-        labels: monthlyLabels,
+        labels: backendCharts.monthlyStudents ? Object.keys(backendCharts.monthlyStudents) : monthlyLabels,
         datasets: [
           {
-            label: 'Branches Added',
-            data: monthlyLabels.map((_, i) =>
-              i <= currentMonth ? Math.floor((stats.branches || 0) * (i + 1) / (currentMonth + 1)) : 0
+            label: 'Students Growth',
+            data: backendCharts.monthlyStudents ? Object.values(backendCharts.monthlyStudents) : monthlyLabels.map((_, i) =>
+              i <= currentMonth ? Math.floor((stats.students || 0) * (i + 1) / (currentMonth + 1)) : 0
             ),
             borderColor: '#f59e0b',
             backgroundColor: 'rgba(245, 158, 11, 0.1)',
             tension: 0.4,
           },
           {
-            label: 'Courses Created',
-            data: monthlyLabels.map((_, i) =>
-              i <= currentMonth ? Math.floor((stats.courses || 0) * (i + 1) / (currentMonth + 1)) : 0
+            label: 'Batches Growth',
+            data: backendCharts.monthlyBatches ? Object.values(backendCharts.monthlyBatches) : monthlyLabels.map((_, i) =>
+              i <= currentMonth ? Math.floor((stats.batches || 0) * (i + 1) / (currentMonth + 1)) : 0
             ),
             borderColor: '#10b981',
             backgroundColor: 'rgba(16, 185, 129, 0.1)',
@@ -103,13 +121,7 @@ const AdminDashboard = () => {
             Math.floor((stats.branches || 0) * 0.15),
             Math.floor((stats.branches || 0) * 0.1)
           ],
-          backgroundColor: [
-            '#3b82f6',
-            '#06b6d4',
-            '#10b981',
-            '#f59e0b',
-            '#8b5cf6'
-          ],
+          backgroundColor: chartColors.slice(0, 5),
           borderWidth: 0,
         }]
       },
@@ -123,21 +135,15 @@ const AdminDashboard = () => {
             stats.courses || 0,
             stats.subjects || 0
           ],
-          backgroundColor: [
-            'rgba(59, 130, 246, 0.8)',
-            'rgba(16, 185, 129, 0.8)',
-            'rgba(245, 158, 11, 0.8)',
-            'rgba(139, 92, 246, 0.8)'
-          ],
-          borderColor: [
-            '#3b82f6',
-            '#10b981',
-            '#f59e0b',
-            '#8b5cf6'
-          ],
+          backgroundColor: chartColors.slice(0, 4),
+          borderColor: chartColors.slice(0, 4),
           borderWidth: 2,
         }]
-      }
+      },
+      // New Charts from Backend Distribution
+      branchCity: generateDistChart(backendCharts.branchCityDistribution || {}, 'Branches by City'),
+      branchDistrict: generateDistChart(backendCharts.branchDistrictDistribution || {}, 'Branches by District'),
+      studentBranch: generateDistChart(backendCharts.studentBranchDistribution || {}, 'Students by Branch')
     };
   };
 
@@ -907,27 +913,48 @@ const AdminDashboard = () => {
 
             {/* Branch Distribution */}
             <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Branch Distribution</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Distribution</h3>
+                <select
+                  value={distributionView}
+                  onChange={(e) => setDistributionView(e.target.value)}
+                  className="text-xs md:text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 py-1"
+                >
+                  <option value="city">By City</option>
+                  <option value="district">By District</option>
+                  <option value="branch">Students per Branch</option>
+                </select>
+              </div>
               <div className="h-80 flex items-center justify-center">
-                {chartData.branchDistribution ? (
-                  <Doughnut
-                    data={chartData.branchDistribution}
-                    options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      plugins: {
-                        legend: {
-                          position: 'right',
-                          labels: {
-                            boxWidth: 12,
-                            padding: 15,
+                {distributionView === 'branch' ? (
+                  chartData.studentBranch ? (
+                    <Bar
+                      data={chartData.studentBranch}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        indexAxis: 'y',
+                        plugins: { legend: { display: false } },
+                        scales: { x: { beginAtZero: true } }
+                      }}
+                    />
+                  ) : <div className="text-gray-400">Loading...</div>
+                ) : (
+                  (distributionView === 'city' ? chartData.branchCity : chartData.branchDistrict) ? (
+                    <Doughnut
+                      data={distributionView === 'city' ? chartData.branchCity : chartData.branchDistrict}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: {
+                            position: 'right',
+                            labels: { boxWidth: 12, padding: 15 },
                           },
                         },
-                      },
-                    }}
-                  />
-                ) : (
-                  <div className="text-gray-400">Loading chart data...</div>
+                      }}
+                    />
+                  ) : <div className="text-gray-400">Loading...</div>
                 )}
               </div>
             </div>

@@ -388,6 +388,33 @@ class BranchStudentDashboardService {
       throw new Error('Failed to refresh student data');
     }
   }
+
+  /**
+   * Get live sessions for branch student
+   */
+  async getLiveSessions() {
+    try {
+      console.log('🔴 [BranchStudentService] Fetching branch live sessions...');
+
+      const api = createAuthenticatedRequest();
+      const response = await api.get('/api/live-sessions/student/live-now');
+
+      console.log('✅ [BranchStudentService] Live sessions retrieved:', response.data);
+
+      return {
+        success: true,
+        sessions: response.data || []
+      };
+
+    } catch (error) {
+      console.error('❌ [BranchStudentService] Live sessions fetch error:', error);
+      // Return empty array as fallback
+      return {
+        success: true,
+        sessions: []
+      };
+    }
+  }
 }
 
 // Export singleton instance

@@ -281,7 +281,7 @@ async def get_student_results(
         # 1. Check branch_results collection
         results_cursor = db.branch_results.find(query).sort("created_at", -1)
         for result in results_cursor:
-            all_results.append(format_result_for_student(result))
+            all_results.append(format_result_for_student(result, db))
         
         # 2. Check quiz_attempts collection for quiz results
         quiz_attempts_cursor = db.quiz_attempts.find(query).sort("created_at", -1)
@@ -291,7 +291,7 @@ async def get_student_results(
         # 3. Check exam_results collection
         exam_results_cursor = db.exam_results.find(query).sort("created_at", -1)
         for exam_result in exam_results_cursor:
-            all_results.append(format_result_for_student(exam_result))
+            all_results.append(format_result_for_student(exam_result, db))
         
         # 4. Check test_submissions collection
         test_submissions_cursor = db.test_submissions.find(query).sort("submitted_at", -1)
@@ -324,7 +324,19 @@ async def get_student_results(
         logger.error(f"📊 [STUDENT RESULTS API] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error getting results: {str(e)}")
 
-def format_result_for_student(result):
+def format_seconds(seconds):
+    """Format seconds into HH:MM:SS string"""
+    if not seconds:
+        return None
+    try:
+        seconds = int(seconds)
+        m, s = divmod(seconds, 60)
+        h, m = divmod(m, 60)
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    except:
+        return str(seconds)
+
+def format_result_for_student(result, db=None):
     """Format a result document for student view"""
     total_questions = result.get("total_questions", 0)
     correct_answers = result.get("correct_answers", 0)
@@ -343,6 +355,30 @@ def format_result_for_student(result):
     else:
         status = "Failed"
     
+    # Try to find duration from related paper/test if db access provided
+    duration = None
+    if db:
+        paper_set_id = result.get("paper_set_id")
+        if paper_set_id:
+            try:
+                paper = db.paper_sets.find_one({"_id": ObjectId(paper_set_id)})
+                if paper:
+                    duration = paper.get("duration") or paper.get("time_limit")
+            except:
+                pass
+    
+    time_taken = result.get("time_taken")
+    # Format time_taken if it exists and looks like seconds (int)
+    if isinstance(time_taken, int):
+        time_taken = format_seconds(time_taken)
+    elif not time_taken and duration:
+        # Use duration as fallback if time_taken is missing
+        # If duration is int (minutes), convert to HH:MM:SS
+        if isinstance(duration, int):
+            time_taken = format_seconds(duration * 60)
+        else:
+            time_taken = str(duration)
+
     return {
         "id": str(result.get("_id", "")),
         "test_name": result.get("test_name") or result.get("paper_name") or result.get("quiz_name") or "Test",
@@ -356,7 +392,7 @@ def format_result_for_student(result):
         "percentage": round(percentage, 2),
         "status": result.get("status") or status,
         "grade": result.get("grade") or ("A" if percentage >= 80 else "B" if percentage >= 60 else "C" if percentage >= 40 else "F"),
-        "time_taken": result.get("time_taken"),
+        "time_taken": time_taken,
         "exam_date": result.get("created_at") or result.get("exam_date") or datetime.utcnow().isoformat(),
         "subject": result.get("subject", ""),
         "course": result.get("course", "")
@@ -367,23 +403,33 @@ def format_quiz_attempt_for_student(attempt, db):
     # Get quiz details if available
     quiz_id = attempt.get("quiz_id")
     quiz_name = attempt.get("quiz_title") or "Quiz"
+    duration = None
     
     if quiz_id:
         try:
             quiz = db.quizzes.find_one({"_id": ObjectId(quiz_id)})
             if quiz:
                 quiz_name = quiz.get("title", quiz_name)
+                duration = quiz.get("duration") or quiz.get("time_limit")
         except:
             pass
     
     total_questions = attempt.get("total_questions", 0)
     correct_answers = attempt.get("correct_answers", 0)
-    score = attempt.get("score", 0)
     
     # Calculate percentage
     percentage = attempt.get("percentage", 0)
     if not percentage and total_questions > 0:
         percentage = (correct_answers / total_questions * 100)
+    
+    time_taken = attempt.get("time_taken")
+    if isinstance(time_taken, int):
+        time_taken = format_seconds(time_taken)
+    elif not time_taken and duration:
+        if isinstance(duration, int):
+            time_taken = format_seconds(duration * 60)
+        else:
+            time_taken = str(duration)
     
     return {
         "id": str(attempt.get("_id", "")),
@@ -398,7 +444,7 @@ def format_quiz_attempt_for_student(attempt, db):
         "percentage": round(percentage, 2),
         "status": attempt.get("status") or ("Passed" if percentage >= 60 else "Failed"),
         "grade": attempt.get("grade") or ("A" if percentage >= 80 else "B" if percentage >= 60 else "C" if percentage >= 40 else "F"),
-        "time_taken": attempt.get("time_taken"),
+        "time_taken": time_taken,
         "exam_date": attempt.get("submitted_at") or attempt.get("created_at") or datetime.utcnow().isoformat(),
         "subject": attempt.get("subject", ""),
         "course": attempt.get("course", "")
@@ -408,12 +454,14 @@ def format_test_submission_for_student(submission, db):
     """Format a test submission for student view"""
     paper_id = submission.get("paper_id") or submission.get("paper_set_id")
     paper_name = submission.get("paper_name") or "Test"
+    duration = None
     
     if paper_id:
         try:
             paper = db.paper_sets.find_one({"_id": ObjectId(paper_id)})
             if paper:
                 paper_name = paper.get("name") or paper.get("paper_name", paper_name)
+                duration = paper.get("duration") or paper.get("time_limit")
         except:
             pass
     
@@ -425,6 +473,15 @@ def format_test_submission_for_student(submission, db):
     if not percentage and total_questions > 0:
         percentage = (correct_answers / total_questions * 100)
     
+    time_taken = submission.get("time_taken")
+    if isinstance(time_taken, int):
+        time_taken = format_seconds(time_taken)
+    elif not time_taken and duration:
+        if isinstance(duration, int):
+            time_taken = format_seconds(duration * 60)
+        else:
+            time_taken = str(duration)
+            
     return {
         "id": str(submission.get("_id", "")),
         "test_name": paper_name,
@@ -438,7 +495,7 @@ def format_test_submission_for_student(submission, db):
         "percentage": round(percentage, 2),
         "status": submission.get("status") or ("Passed" if percentage >= 60 else "Failed"),
         "grade": submission.get("grade") or ("A" if percentage >= 80 else "B" if percentage >= 60 else "C" if percentage >= 40 else "F"),
-        "time_taken": submission.get("time_taken"),
+        "time_taken": time_taken,
         "exam_date": submission.get("submitted_at") or submission.get("created_at") or datetime.utcnow().isoformat(),
         "subject": submission.get("subject", ""),
         "course": submission.get("course", "")

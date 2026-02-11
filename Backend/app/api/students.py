@@ -798,33 +798,92 @@ async def download_student_marksheet(request: Request, current_user: dict = Depe
         is_branch_student = current_user.get("is_branch_student", False)
         branch_code = current_user.get("branch_code")
         
-        logger.info(f"[STUDENT-MARKSHEET] Downloading marksheet for user: {user_id}")
+        logger.info(f"[STUDENT-MARKSHEET] Request to download marksheet for user: {user_id}")
         
         marksheet = None
+        student_identifiers = [str(user_id)]
         
+        # Fetch student profile to get registration number
+        student_profile = None
+        if include_registration := True:  # Always try to include registration number
+            if is_branch_student:
+                try:
+                    student_profile = db.branch_students.find_one({"_id": ObjectId(user_id)})
+                except:
+                    student_profile = db.branch_students.find_one({"user_id": user_id})
+            else:
+                try:
+                    student_profile = db.students.find_one({"_id": ObjectId(user_id)})
+                except:
+                    pass
+            
+            if student_profile:
+                reg_no = student_profile.get("registration_number") or student_profile.get("student_id") or student_profile.get("id_number")
+                if reg_no:
+                    student_identifiers.append(str(reg_no))
+                    logger.info(f"[STUDENT-MARKSHEET] Found registration number: {reg_no}")
+
+        logger.info(f"[STUDENT-MARKSHEET] Searching marksheets with identifiers: {student_identifiers}")
+        
+        # Strategy: Search both collections to be safe
+        # First try based on flag, then fallback
+        
+        collections_to_search = []
         if is_branch_student:
-            # For branch students, find their marksheet from branch_marksheets collection
-            marksheet = db.branch_marksheets.find_one({
-                "student_id": str(user_id),
-                "branch_code": branch_code
-            })
+             collections_to_search = [
+                 (db.branch_marksheets, {"student_id": {"$in": student_identifiers}, "branch_code": branch_code}),
+                 (db.branch_marksheets, {"student_id": {"$in": student_identifiers}}), # Fallback ignoring branch_code
+                 (db.marksheets, {"student_id": {"$in": student_identifiers}}) # Fallback
+             ]
         else:
-            # For regular students, find marksheet in main marksheets collection
-            marksheet = db.marksheets.find_one({
-                "student_id": str(user_id)
-            })
+             collections_to_search = [
+                 (db.marksheets, {"student_id": {"$in": student_identifiers}}),
+                 (db.branch_marksheets, {"student_id": {"$in": student_identifiers}})
+             ]
+
+        for collection, query in collections_to_search:
+            try:
+                # Remove None values from query
+                clean_query = {k: v for k, v in query.items() if v is not None}
+                logger.info(f"[STUDENT-MARKSHEET] Searching in {collection.name} with query: {clean_query}")
+                
+                marksheet = collection.find_one(clean_query, sort=[("created_at", -1)])
+                if marksheet:
+                    logger.info(f"[STUDENT-MARKSHEET] ✅ Found marksheet in {collection.name}")
+                    break
+            except Exception as e:
+                logger.warning(f"[STUDENT-MARKSHEET] Error searching collection {collection.name}: {e}")
+                continue
         
         if not marksheet:
+            logger.warning(f"[STUDENT-MARKSHEET] No marksheet found for identifiers: {student_identifiers} in any collection")
             raise HTTPException(status_code=404, detail="Marksheet not found for this student")
         
         file_path = marksheet.get("file_path")
-        if not file_path or not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="Marksheet file not found")
+        logger.info(f"[STUDENT-MARKSHEET] Found marksheet record. File path: {file_path}")
+
+        # Validate file path
+        if not file_path:
+             raise HTTPException(status_code=404, detail="Marksheet file path is missing in record")
+
+        # Handle absolute vs relative paths
+        if not os.path.exists(file_path):
+            # Try prepending basedir if relative
+            base_dir = os.getcwd() # Or use configured BASE_DIR
+            alt_path = os.path.join(base_dir, file_path.lstrip("/").lstrip("\\"))
+            if os.path.exists(alt_path):
+                file_path = alt_path
+            else:
+                logger.error(f"[STUDENT-MARKSHEET] File not found at: {file_path} or {alt_path}")
+                raise HTTPException(status_code=404, detail="Marksheet file not found on server")
         
+        filename = f"marksheet_{marksheet.get('marksheet_number', 'student')}.pdf" if file_path.endswith('.pdf') else f"marksheet_{marksheet.get('marksheet_number', 'student')}.png"
+        media_type = "application/pdf" if file_path.endswith('.pdf') else "image/png"
+
         return FileResponse(
             path=file_path,
-            filename=f"marksheet_{marksheet.get('marksheet_number', 'student')}.pdf",
-            media_type="application/pdf"
+            filename=filename,
+            media_type=media_type
         )
         
     except HTTPException:
@@ -832,4 +891,4 @@ async def download_student_marksheet(request: Request, current_user: dict = Depe
     except Exception as e:
         logger.error(f"[STUDENT-MARKSHEET] Error downloading marksheet: {str(e)}")
         logger.error(f"[STUDENT-MARKSHEET] Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail="Failed to download marksheet")
+        raise HTTPException(status_code=500, detail=f"Failed to download marksheet: {str(e)}")

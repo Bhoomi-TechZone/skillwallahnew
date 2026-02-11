@@ -369,6 +369,8 @@ app.include_router(file_upload_router, prefix="/api")  # file upload router
 app.include_router(syllabuses_router)  # syllabuses router
 app.include_router(utility_router)  # utility router for common data
 app.include_router(utility_router)  # utility router for states and other data
+from app.api.agora import router as live_session_router
+app.include_router(live_session_router, prefix="/api/live-sessions", tags=["Live Sessions"])
 
 @app.get("/", tags=["Root"])
 async def read_root():

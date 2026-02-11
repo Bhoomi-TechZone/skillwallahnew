@@ -118,6 +118,11 @@ const BranchSidebar = ({ isCollapsed = false, isHovering = false, onItemClick })
               }
             }
 
+            if (subItem.title === 'Live Classes') {
+              return isActive('/admin/courses/live-classes');
+            }
+
+
             // Handle Study Materials sub tabs
             if (subItem.title === 'Syllabus') {
               if (currentRole === 'admin' || currentRole === 'franchise_admin') {
@@ -390,6 +395,12 @@ const BranchSidebar = ({ isCollapsed = false, isHovering = false, onItemClick })
         // Default fallback for other roles (branch users might not have access)
         navigate('/branch/courses/batches');
       }
+      return;
+    }
+
+    // Handle role-based routing for Live Classes
+    if (item && item.title === 'Live Classes') {
+      navigate('/admin/courses/live-classes');
       return;
     }
 
@@ -764,6 +775,12 @@ const BranchSidebar = ({ isCollapsed = false, isHovering = false, onItemClick })
           path: null, // Will be dynamically set based on role
           icon: FaUsers,
           roleBasedPath: true // Flag to indicate this path is role-based
+        },
+        {
+          title: 'Live Classes',
+          path: null,
+          icon: FaVideo,
+          roleBasedPath: true
         }
       ]
     },

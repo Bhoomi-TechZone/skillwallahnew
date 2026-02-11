@@ -409,7 +409,7 @@ async def get_branch_dashboard_stats(
         branch_code = branch_context.get("branch_code")
         
         # Try cache first (2 minute TTL)
-        cache_key = f"branch_dashboard_stats:{franchise_code}"
+        cache_key = f"branch_dashboard_stats:{franchise_code}:v2"
         cached_stats = app_cache.get(cache_key)
         
         if cached_stats:
@@ -494,6 +494,25 @@ async def get_branch_dashboard_stats(
             {"$group": {"_id": "$month", "count": {"$sum": 1}}}
         ]
 
+        # New: Branch Distribution Pipelines (City/Wise/District)
+        branch_city_pipeline = [
+            {"$match": {"franchise_code": franchise_code}},
+            {"$group": {"_id": "$centre_info.district", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+
+        branch_district_pipeline = [
+            {"$match": {"franchise_code": franchise_code}},
+            {"$group": {"_id": "$centre_info.district", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+
+        student_branch_pipeline = [
+            {"$match": {"franchise_code": franchise_code}},
+            {"$group": {"_id": "$branch_code", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+
         # Prepare all counting tasks
         base_query = {"franchise_code": franchise_code}
         
@@ -513,7 +532,11 @@ async def get_branch_dashboard_stats(
             wallet_balance,
             course_dist_raw,
             student_growth_raw,
-            batch_growth_raw
+            batch_growth_raw,
+            branch_city_raw,
+            branch_district_raw,
+            student_branch_raw,
+            branch_list
         ) = await asyncio.gather(
             # Counts
             run_in_threadpool(db.branches.count_documents, base_query),
@@ -533,17 +556,42 @@ async def get_branch_dashboard_stats(
             # Charts
             run_in_threadpool(run_aggregation, "branch_courses", course_dist_pipeline),
             run_in_threadpool(run_aggregation, "branch_students", student_growth_pipeline),
-            run_in_threadpool(run_aggregation, "branch_batches", batch_growth_pipeline)
+            run_in_threadpool(run_aggregation, "branch_batches", batch_growth_pipeline),
+            run_in_threadpool(run_aggregation, "branches", branch_city_pipeline),
+            run_in_threadpool(run_aggregation, "branches", branch_district_pipeline),
+            run_in_threadpool(run_aggregation, "branch_students", student_branch_pipeline),
+            # Branch Names for Mapping
+            run_in_threadpool(lambda: list(db.branches.find(base_query, {"branch_code": 1, "branch_name": 1, "name": 1, "centre_info": 1})))
         )
         
         # Process Results
         staff_count = staff_count_branch if staff_count_branch > 0 else staff_count_users
         departments_count = len(departments_list) if departments_list else 0
         
+        # Create Branch Code Map
+        branch_map = {}
+        for b in branch_list:
+            # Extract code and name with fallbacks
+            code = b.get("branch_code") or b.get("centre_info", {}).get("branch_code") or b.get("centre_info", {}).get("code")
+            name = b.get("branch_name") or b.get("centre_info", {}).get("centre_name") or b.get("name") or "Unknown"
+            if code:
+                branch_map[code] = name
+
         # Process Charts
         course_distribution = {item["_id"] or "Uncategorized": item["count"] for item in course_dist_raw}
         students_monthly = {item["_id"]: item["count"] for item in student_growth_raw}
         batches_monthly = {item["_id"]: item["count"] for item in batch_growth_raw}
+        
+        # Process New Distributions
+        branch_city_dist = {item["_id"] or "Unknown": item["count"] for item in branch_city_raw}
+        branch_district_dist = {item["_id"] or "Unknown": item["count"] for item in branch_district_raw}
+        
+        # Map branch codes to names for student distribution
+        student_branch_dist = {}
+        for item in student_branch_raw:
+            code = item["_id"]
+            name = branch_map.get(code, f"Branch {code}") if code else "Unknown"
+            student_branch_dist[name] = item["count"]
 
         stats = {
             "branches": branches_count,
@@ -565,7 +613,10 @@ async def get_branch_dashboard_stats(
             "charts": {
                 "courseDistribution": course_distribution,
                 "monthlyStudents": students_monthly,
-                "monthlyBatches": batches_monthly
+                "monthlyBatches": batches_monthly,
+                "branchCityDistribution": branch_city_dist,
+                "branchDistrictDistribution": branch_district_dist,
+                "studentBranchDistribution": student_branch_dist
             }
         }
         

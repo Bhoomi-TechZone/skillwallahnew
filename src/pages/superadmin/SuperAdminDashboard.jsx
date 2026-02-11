@@ -515,11 +515,6 @@ const SuperAdminDashboard = () => {
                         </div>
                       )}
                     </div>
-                    {recentActivities.length > 0 && (
-                      <button className="w-full mt-4 py-2 text-sm text-primary-600 hover:text-primary-700 font-medium hover:bg-primary-50 rounded-lg transition-colors">
-                        View All Activity
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>

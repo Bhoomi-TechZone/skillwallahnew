@@ -64,7 +64,9 @@ async def generate_marksheet_image(marksheet_data: dict, output_path: str) -> bo
         # ---------------------------------------
         # LOAD TEMPLATE
         # ---------------------------------------
-
+        # ---------------------------------------
+        # LOAD TEMPLATE
+        # ---------------------------------------
         # Check if a custom template path is provided in the data
         custom_template_path = marksheet_data.get("template_path")
         
@@ -72,72 +74,23 @@ async def generate_marksheet_image(marksheet_data: dict, output_path: str) -> bo
             # Clean up the path (remove leading slashes or excessive dots)
             clean_path = custom_template_path.replace("\\", "/").strip("/")
             
-            # CRITICAL DEBUG: Log what we received
-            print(f"[MARKSHEET] ⚠️ TEMPLATE DEBUG - Received: {custom_template_path}")
-            print(f"[MARKSHEET] ⚠️ TEMPLATE DEBUG - Cleaned: {clean_path}")
-            
-            # CRITICAL SECURITY: Reject if template path looks like a student photo
-            photo_indicators = ['student_photos', 'profile_photo', 'id_cards', 'student_', 'photo']
-            is_photo = any(indicator in clean_path.lower() for indicator in photo_indicators)
-            
-            # Also check file extension - if it's in student_photos or similar, reject it
-            if is_photo or (clean_path.lower().endswith(('.jpg', '.jpeg', '.png')) and 'Marksheet' not in clean_path):
-                print(f"[MARKSHEET] 🚨 SECURITY ALERT: Template path looks like a student photo!")
-                print(f"[MARKSHEET] 🚨 REJECTING: {clean_path}")
-                print(f"[MARKSHEET] 🔒 FORCING DEFAULT TEMPLATE")
-                clean_path = "uploads/Marksheet/marksheet.jpeg"
-            
-            # SECURITY: Validate template path to prevent arbitrary file access
-            allowed_templates = [
-                "uploads/Marksheet/marksheet.jpeg",
-                "uploads/Marksheet/Marksheet.jpeg", 
-                "uploads/Marksheet/marksheet.jpg",
-                "uploads/Marksheet/marksheet.png"
-            ]
-            
-            # If the path is not in allowed templates, force the default
-            if clean_path.lower() not in [t.lower() for t in allowed_templates]:
-                print(f"[MARKSHEET] ⚠️ WARNING: Unauthorized template path: {clean_path}")
-                print(f"[MARKSHEET] 🔒 FORCING DEFAULT TEMPLATE")
-                clean_path = "uploads/Marksheet/marksheet.jpeg"
-            
-            print(f"[MARKSHEET] ✅ VALIDATED template: {clean_path}")
-            
             # Remove 'london_lms/' prefix if present, as BASE_DIR usually points to project root
             if clean_path.startswith("london_lms/"):
                 clean_path = clean_path.replace("london_lms/", "", 1)
                 
-            # Try multiple paths to find the template
-            possible_template_paths = [
-                os.path.join(BASE_DIR, clean_path),
-                os.path.join(os.getcwd(), clean_path),
-                clean_path,
-                os.path.abspath(clean_path)
-            ]
-            
-            template_path = None
-            for path in possible_template_paths:
-                print(f"[MARKSHEET] Checking template path: {path}")
-                if os.path.exists(path):
-                    template_path = path
-                    print(f"[MARKSHEET] ✅ Found template at: {path}")
-                    break
-            
-            if not template_path:
-                 # If we couldn't find it, default to the first constructed path for the error message
-                 template_path = os.path.join(BASE_DIR, clean_path)
-                 print(f"[MARKSHEET] ❌ Template not found in any checked location")
-                 raise FileNotFoundError(f"Marksheet template not found at {clean_path}")
-
-            print(f"[MARKSHEET] Using final template path: {template_path}")
+            template_path = os.path.join(BASE_DIR, clean_path)
+            print(f"[MARKSHEET] Using custom template path: {template_path}")
         else:
-             # If no template path is provided, we raise an error instead of using a default
-             raise FileNotFoundError("No template path provided in request data. Default template fallback has been disabled.")
+            # Fallback to default if no path provided
+            template_path = os.path.join(
+                BASE_DIR, "uploads", "Marksheet", "marksheet.jpeg"
+            )
         
+        print(f"[MARKSHEET] Template path: {template_path}")
         print(f"[MARKSHEET] Input data: {marksheet_data}")
 
         if not os.path.exists(template_path):
-             raise FileNotFoundError(f"Marksheet template not found at {template_path}")
+            raise FileNotFoundError("Marksheet template not found")
 
         img = Image.open(template_path).convert("RGB")
         draw = ImageDraw.Draw(img)
@@ -338,24 +291,21 @@ async def generate_marksheet_image(marksheet_data: dict, output_path: str) -> bo
         # STUDENT PHOTO (Right side of student details)
         # Position: approximately (1035, 430) based on template
         # ---------------------------------------
-        photo_url = marksheet_data.get("photo_url") or marksheet_data.get("student_photo") or ""
+        photo_url = marksheet_data.get("photo_url") or ""
         print(f"[MARKSHEET] Photo URL received: {photo_url}")
 
         if photo_url and photo_url.strip():
             try:
                 photo = None
                 
-                # Strip query parameters from photo URL to get actual file path
-                # This prevents caching issues when the same URL has different query params
-                clean_photo_url = photo_url.split('?')[0] if '?' in photo_url else photo_url
-                print(f"[MARKSHEET] Clean photo URL (without query params): {clean_photo_url}")
-                
                 # Check if it's a URL (http/https)
-                if clean_photo_url.startswith('http'):
-                    print(f"[MARKSHEET] Loading photo from URL: {clean_photo_url}")
-                    response = requests.get(clean_photo_url, timeout=10)
+                if photo_url.startswith('http'):
+                    print(f"[MARKSHEET] Loading photo from URL: {photo_url}")
+                    # Remove query params for logging but keep for request
+                    clean_url = photo_url.split('?')[0] if '?' in photo_url else photo_url
+                    print(f"[MARKSHEET] Clean URL: {clean_url}")
+                    response = requests.get(photo_url, timeout=10)
                     if response.status_code == 200:
-                        # Load image from bytes to avoid caching
                         photo = Image.open(BytesIO(response.content))
                         print(f"[MARKSHEET] Photo loaded from HTTP URL successfully")
                     else:
@@ -370,7 +320,7 @@ async def generate_marksheet_image(marksheet_data: dict, output_path: str) -> bo
                     print(f"[MARKSHEET] Current working directory: {cwd}")
                     
                     # Strip leading slash and normalize
-                    clean_photo_path = clean_photo_url.lstrip("/").replace("\\", "/")
+                    clean_photo_path = photo_url.lstrip("/").replace("\\", "/")
                     filename = os.path.basename(clean_photo_path)
                     
                     # Build possible paths
@@ -392,9 +342,7 @@ async def generate_marksheet_image(marksheet_data: dict, output_path: str) -> bo
                         print(f"[MARKSHEET] Trying photo path: {path}")
                         if os.path.exists(path):
                             print(f"[MARKSHEET] ✅ Photo FOUND at: {path}")
-                            # Open and immediately load to avoid file handle caching
-                            with Image.open(path) as img:
-                                photo = img.copy()  # Create a copy to avoid caching issues
+                            photo = Image.open(path)
                             break
                         else:
                             print(f"[MARKSHEET] ❌ Path not found: {path}")

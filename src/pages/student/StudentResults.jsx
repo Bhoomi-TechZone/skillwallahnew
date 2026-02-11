@@ -337,12 +337,20 @@ const StudentResults = () => {
         responseType: 'blob'
       });
 
-      // Create blob and download
-      const blob = new Blob([response.data], { type: 'application/pdf' });
+      // Determine file type from headers
+      const contentType = response.headers['content-type'];
+      const isPdf = contentType && contentType.includes('pdf');
+      const extension = isPdf ? 'pdf' : 'png';
+      const mimeType = isPdf ? 'application/pdf' : 'image/png';
+
+      console.log('📄 Download content type:', contentType);
+
+      // Create blob and download with correct type
+      const blob = new Blob([response.data], { type: mimeType });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `Marksheet_${studentName || 'Student'}_${new Date().toISOString().split('T')[0]}.pdf`;
+      link.download = `Marksheet_${studentName || 'Student'}_${new Date().toISOString().split('T')[0]}.${extension}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -395,7 +403,7 @@ const StudentResults = () => {
 
       // First, get the certificate ID for the current student
       const studentId = getUserData()?.user_id || getUserData()?.student_id || getUserData()?.id;
-      
+
       // Fetch certificates to get the certificate ID
       const certResponse = await axios.get(`${API_BASE_URL}/api/branch/certificates`, {
         headers: {
@@ -418,16 +426,16 @@ const StudentResults = () => {
         }
 
         // Filter for generated/issued certificates
-        const generatedCertificates = certificates.filter(cert => 
+        const generatedCertificates = certificates.filter(cert =>
           cert.status === 'generated' || cert.status === 'issued'
         );
-        
+
         if (generatedCertificates.length > 0) {
           // Get the most recent certificate
-          const latestCertificate = generatedCertificates.sort((a, b) => 
+          const latestCertificate = generatedCertificates.sort((a, b) =>
             new Date(b.created_at || b.createdAt) - new Date(a.created_at || a.createdAt)
           )[0];
-          
+
           // Download using the correct branch certificate endpoint
           const downloadResponse = await axios.get(`${API_BASE_URL}/api/branch/certificates/${latestCertificate._id || latestCertificate.id}/download`, {
             headers: {
@@ -523,16 +531,16 @@ const StudentResults = () => {
         }
 
         // Filter for generated/issued certificates
-        const generatedCertificates = certificates.filter(cert => 
+        const generatedCertificates = certificates.filter(cert =>
           cert.status === 'generated' || cert.status === 'issued'
         );
-        
+
         if (generatedCertificates.length > 0) {
           // Sort by creation date to get the most recent
-          const latestCertificate = generatedCertificates.sort((a, b) => 
+          const latestCertificate = generatedCertificates.sort((a, b) =>
             new Date(b.created_at || b.createdAt) - new Date(a.created_at || a.createdAt)
           )[0];
-          
+
           console.log('Latest certificate found:', latestCertificate);
           setPreviewCertificate(latestCertificate);
         } else {
@@ -544,7 +552,7 @@ const StudentResults = () => {
 
     } catch (error) {
       console.error('Certificate preview failed:', error);
-      
+
       // Show error message instead of fallback
       setPreviewCertificate(null);
       alert(`Unable to load certificate preview: ${error.message}. Please try again later or contact support.`);
@@ -722,8 +730,8 @@ const StudentResults = () => {
               filteredResults.map((result, index) => (
                 <div key={result.id} className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 space-y-3 relative overflow-hidden">
                   <div className={`absolute top-0 right-0 w-2 h-full ${result.percentage >= 80 ? 'bg-green-500' :
-                      result.percentage >= 60 ? 'bg-blue-500' :
-                        result.percentage >= 40 ? 'bg-orange-500' : 'bg-red-500'
+                    result.percentage >= 60 ? 'bg-blue-500' :
+                      result.percentage >= 40 ? 'bg-orange-500' : 'bg-red-500'
                     }`}></div>
 
                   <div className="flex justify-between items-start pr-3">
@@ -736,7 +744,7 @@ const StudentResults = () => {
                     </div>
                     <div className="text-right">
                       <div className={`text-xl font-bold ${result.percentage >= 80 ? 'text-green-600' :
-                          result.percentage >= 40 ? 'text-blue-600' : 'text-red-600'
+                        result.percentage >= 40 ? 'text-blue-600' : 'text-red-600'
                         }`}>
                         {result.percentage}%
                       </div>
@@ -975,18 +983,45 @@ const StudentResults = () => {
 
       {/* Detailed Result Modal */}
       {showDetailModal && selectedResult && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-2xl transform transition-all duration-300">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 print:p-0 print:bg-white print:fixed print:inset-0">
+          <style>
+            {`
+              @media print {
+                body * {
+                  visibility: hidden;
+                }
+                #printable-result-section, #printable-result-section * {
+                  visibility: visible;
+                }
+                #printable-result-section {
+                  position: absolute;
+                  left: 0;
+                  top: 0;
+                  width: 100%;
+                  margin: 0;
+                  padding: 20px;
+                  box-shadow: none !important;
+                  max-height: none !important;
+                  overflow: visible !important;
+                  background: white !important;
+                }
+                .no-print {
+                  display: none !important;
+                }
+              }
+            `}
+          </style>
+          <div id="printable-result-section" className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-2xl transform transition-all duration-300">
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6 rounded-t-2xl">
+            <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6 rounded-t-2xl print:bg-none print:text-black print:p-0 print:mb-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-bold">{selectedResult.testName}</h2>
-                  <p className="text-blue-100 mt-1">Detailed Test Result Analysis</p>
+                  <p className="text-blue-100 mt-1 print:text-black">Detailed Test Result Analysis</p>
                 </div>
                 <button
                   onClick={() => setShowDetailModal(false)}
-                  className="text-white hover:text-gray-300 text-3xl font-light transition-colors"
+                  className="text-white hover:text-gray-300 text-3xl font-light transition-colors no-print"
                 >
                   ×
                 </button>
@@ -994,72 +1029,69 @@ const StudentResults = () => {
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 space-y-6">
+            <div className="p-6 space-y-6 print:p-0">
               {/* Test Overview */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
-                  <div className="text-green-600 text-lg font-semibold">Overall Score</div>
-                  <div className="text-2xl font-bold text-green-700">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-2">
+                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200 print:bg-white print:border-gray-300">
+                  <div className="text-green-600 text-lg font-semibold print:text-black">Overall Score</div>
+                  <div className="text-2xl font-bold text-green-700 print:text-black">
                     {selectedResult.obtainedMarks}/{selectedResult.totalMarks}
                   </div>
-                  <div className="text-sm text-green-600">
+                  <div className="text-sm text-green-600 print:text-black">
                     {selectedResult.percentage}% ({selectedResult.grade} Grade)
                   </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
-                  <div className="text-blue-600 text-lg font-semibold">Test Date</div>
-                  <div className="text-2xl font-bold text-blue-700">
-                    {new Date(selectedResult.attemptDate).toLocaleDateString()}
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200 print:bg-white print:border-gray-300">
+                  <div className="text-blue-600 text-lg font-semibold print:text-black">Test Date</div>
+                  <div className="text-2xl font-bold text-blue-700 print:text-black">
+                    {new Date(selectedResult.date).toLocaleDateString()}
                   </div>
-                  <div className="text-sm text-blue-600">
-                    {new Date(selectedResult.attemptDate).toLocaleTimeString()}
+                  <div className="text-sm text-blue-600 print:text-black">
+                    {new Date(selectedResult.date).toLocaleTimeString()}
                   </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
-                  <div className="text-purple-600 text-lg font-semibold">Subject</div>
-                  <div className="text-xl font-bold text-purple-700">
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200 print:bg-white print:border-gray-300">
+                  <div className="text-purple-600 text-lg font-semibold print:text-black">Subject</div>
+                  <div className="text-xl font-bold text-purple-700 print:text-black">
                     {selectedResult.subject || 'General'}
                   </div>
-                  <div className="text-sm text-purple-600">Category</div>
+                  <div className="text-sm text-purple-600 print:text-black">Category</div>
                 </div>
 
-                <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-4 border border-orange-200">
-                  <div className="text-orange-600 text-lg font-semibold">Duration</div>
-                  <div className="text-xl font-bold text-orange-700">
-                    {selectedResult.duration || 'N/A'}
+                <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-4 border border-orange-200 print:bg-white print:border-gray-300">
+                  <div className="text-orange-600 text-lg font-semibold print:text-black">Duration</div>
+                  <div className="text-xl font-bold text-orange-700 print:text-black">
+                    {selectedResult.timeTaken || 'N/A'}
                   </div>
-                  <div className="text-sm text-orange-600">Time Taken</div>
+                  <div className="text-sm text-orange-600 print:text-black">Time Taken</div>
                 </div>
               </div>
 
               {/* Performance Analysis */}
-              <div className="bg-gray-50 rounded-xl p-6">
+              <div className="bg-gray-50 rounded-xl p-6 print:bg-white print:border print:border-gray-200">
                 <h3 className="text-xl font-bold text-gray-800 mb-4">Performance Analysis</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:grid-cols-3">
                   <div className="text-center">
-                    <div className="bg-green-500 text-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-2 text-xl font-bold">
-                      {selectedResult.correctAnswers || 0}
+                    <div className="bg-green-500 text-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-2 text-xl font-bold print:border print:border-green-500 print:text-green-600 print:bg-white">
+                      {selectedResult.rightQuestions || 0}
                     </div>
-                    <div className="font-semibold text-green-600">Correct Answers</div>
-                    <div className="text-sm text-gray-600">Well done!</div>
+                    <div className="font-semibold text-green-600 print:text-black">Correct Answers</div>
                   </div>
 
                   <div className="text-center">
-                    <div className="bg-red-500 text-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-2 text-xl font-bold">
-                      {selectedResult.wrongAnswers || 0}
+                    <div className="bg-red-500 text-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-2 text-xl font-bold print:border print:border-red-500 print:text-red-600 print:bg-white">
+                      {selectedResult.wrongQuestions || 0}
                     </div>
-                    <div className="font-semibold text-red-600">Wrong Answers</div>
-                    <div className="text-sm text-gray-600">Areas for improvement</div>
+                    <div className="font-semibold text-red-600 print:text-black">Wrong Answers</div>
                   </div>
 
                   <div className="text-center">
-                    <div className="bg-gray-500 text-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-2 text-xl font-bold">
-                      {selectedResult.totalQuestions - (selectedResult.correctAnswers || 0) - (selectedResult.wrongAnswers || 0)}
+                    <div className="bg-gray-500 text-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-2 text-xl font-bold print:border print:border-gray-500 print:text-gray-600 print:bg-white">
+                      {selectedResult.leftQuestions || (selectedResult.totalQuestions - (selectedResult.rightQuestions || 0) - (selectedResult.wrongQuestions || 0))}
                     </div>
-                    <div className="font-semibold text-gray-600">Not Attempted</div>
-                    <div className="text-sm text-gray-600">Skipped questions</div>
+                    <div className="font-semibold text-gray-600 print:text-black">Not Attempted</div>
                   </div>
                 </div>
               </div>
@@ -1068,45 +1100,45 @@ const StudentResults = () => {
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <h3 className="text-xl font-bold text-gray-800 mb-4">Score Breakdown</h3>
                 <div className="space-y-3">
-                  <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                  <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg print:border print:border-gray-200 print:bg-white">
                     <span className="font-medium">Total Questions:</span>
                     <span className="font-bold text-gray-700">{selectedResult.totalQuestions}</span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                    <span className="font-medium text-green-700">Correct Answers:</span>
-                    <span className="font-bold text-green-700">{selectedResult.correctAnswers || 0}</span>
+                  <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg print:border print:border-green-200 print:bg-white">
+                    <span className="font-medium text-green-700 print:text-black">Correct Answers:</span>
+                    <span className="font-bold text-green-700 print:text-black">{selectedResult.rightQuestions || 0}</span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-red-50 rounded-lg">
-                    <span className="font-medium text-red-700">Wrong Answers:</span>
-                    <span className="font-bold text-red-700">{selectedResult.wrongAnswers || 0}</span>
+                  <div className="flex justify-between items-center p-3 bg-red-50 rounded-lg print:border print:border-red-200 print:bg-white">
+                    <span className="font-medium text-red-700 print:text-black">Wrong Answers:</span>
+                    <span className="font-bold text-red-700 print:text-black">{selectedResult.wrongQuestions || 0}</span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                    <span className="font-medium text-blue-700">Accuracy Rate:</span>
-                    <span className="font-bold text-blue-700">
+                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg print:border print:border-blue-200 print:bg-white">
+                    <span className="font-medium text-blue-700 print:text-black">Accuracy Rate:</span>
+                    <span className="font-bold text-blue-700 print:text-black">
                       {selectedResult.totalQuestions > 0
-                        ? Math.round(((selectedResult.correctAnswers || 0) / selectedResult.totalQuestions) * 100)
+                        ? Math.round(((selectedResult.rightQuestions || 0) / selectedResult.totalQuestions) * 100)
                         : 0}%
                     </span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
-                    <span className="font-medium text-purple-700">Final Grade:</span>
-                    <span className="font-bold text-purple-700 text-lg">{selectedResult.grade}</span>
+                  <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg print:border print:border-purple-200 print:bg-white">
+                    <span className="font-medium text-purple-700 print:text-black">Final Grade:</span>
+                    <span className="font-bold text-purple-700 text-lg print:text-black">{selectedResult.grade}</span>
                   </div>
                 </div>
               </div>
 
               {/* Additional Details */}
               {selectedResult.feedback && (
-                <div className="bg-blue-50 rounded-xl p-6 border border-blue-200">
-                  <h3 className="text-xl font-bold text-blue-800 mb-3">Feedback</h3>
-                  <p className="text-blue-700">{selectedResult.feedback}</p>
+                <div className="bg-blue-50 rounded-xl p-6 border border-blue-200 print:bg-white print:border-gray-300">
+                  <h3 className="text-xl font-bold text-blue-800 mb-3 print:text-black">Feedback</h3>
+                  <p className="text-blue-700 print:text-black">{selectedResult.feedback}</p>
                 </div>
               )}
 
               {/* Recommendations */}
-              <div className="bg-yellow-50 rounded-xl p-6 border border-yellow-200">
-                <h3 className="text-xl font-bold text-yellow-800 mb-3">Recommendations</h3>
-                <div className="space-y-2 text-yellow-700">
+              <div className="bg-yellow-50 rounded-xl p-6 border border-yellow-200 print:bg-white print:border-gray-300">
+                <h3 className="text-xl font-bold text-yellow-800 mb-3 print:text-black">Recommendations</h3>
+                <div className="space-y-2 text-yellow-700 print:text-black">
                   {selectedResult.percentage >= 80 ? (
                     <>
                       <p>🎉 Excellent performance! Keep up the great work.</p>
@@ -1131,7 +1163,7 @@ const StudentResults = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="bg-gray-50 px-6 py-4 rounded-b-2xl flex justify-end space-x-3">
+            <div className="bg-gray-50 px-6 py-4 rounded-b-2xl flex justify-end space-x-3 no-print">
               <button
                 onClick={() => setShowDetailModal(false)}
                 className="px-6 py-2 text-gray-600 hover:text-gray-800 font-medium rounded-lg hover:bg-gray-200 transition-colors"
@@ -1140,7 +1172,6 @@ const StudentResults = () => {
               </button>
               <button
                 onClick={() => {
-                  // Add print functionality for detailed result
                   window.print();
                 }}
                 className="px-6 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
@@ -1235,7 +1266,7 @@ const StudentResults = () => {
                       <p className="text-sm text-gray-500 mt-1">Certificate ID: {previewCertificate.certificate_number}</p>
                     </div>
                   )}
-                  
+
                   {/* Action Buttons */}
                   <div className="mt-6 flex justify-center gap-4">
                     <button

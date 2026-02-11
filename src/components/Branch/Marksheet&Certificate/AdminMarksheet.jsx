@@ -692,7 +692,6 @@ const AdminMarksheet = () => {
       student_name: student?.name || student?.student_name || '',
       father_name: student?.father_name || '',
       mother_name: student?.mother_name || '',
-      // CRITICAL: student_photo is for passport-size photo ON marksheet, NOT the template background
       student_photo: student?.photo_url || student?.photo || student?.photo_path || null,
       student_id_number: student?.registration_number || student?.student_id || student?.id || studentId,
       join_date: joinDateFormatted,
@@ -870,39 +869,7 @@ const AdminMarksheet = () => {
     try {
       setLoading(true);
 
-      // Calculate totals INLINE before submission to ensure correct values
-      const totalMarks = formData.subjects.reduce((sum, subject) => {
-        const theoryMax = parseInt(subject.theory_max) || 0;
-        const practicalMax = parseInt(subject.practical_max) || 0;
-        return sum + theoryMax + practicalMax;
-      }, 0);
-
-      const obtainedMarks = formData.subjects.reduce((sum, subject) => {
-        const theoryMarks = parseInt(subject.theory_marks) || 0;
-        const practicalMarks = parseInt(subject.practical_marks) || 0;
-        return sum + theoryMarks + practicalMarks;
-      }, 0);
-
-      const percentage = totalMarks > 0 ? ((obtainedMarks / totalMarks) * 100).toFixed(2) : 0;
-
-      let grade = 'F';
-      if (percentage >= 90) grade = 'A+';
-      else if (percentage >= 80) grade = 'A';
-      else if (percentage >= 70) grade = 'B+';
-      else if (percentage >= 60) grade = 'B';
-      else if (percentage >= 50) grade = 'C+';
-      else if (percentage >= 40) grade = 'C';
-      else if (percentage >= 33) grade = 'D';
-
-      const finalResult = percentage >= 33 ? 'pass' : 'fail';
-
-      console.log('📊 [MARKSHEET] Calculated totals:', {
-        totalMarks,
-        obtainedMarks,
-        percentage,
-        grade,
-        result: finalResult
-      });
+      calculateTotals();
 
       if (selectedMarksheet) {
         // Backend doesn't support update, so we'll just create a new one
@@ -1102,7 +1069,6 @@ const AdminMarksheet = () => {
             father_name: formData.father_name,
             mother_name: formData.mother_name,
             photo_url: photoUrl,  // Send photo_url to backend
-            student_photo: photoUrl,  // Also store in student_photo field for consistency
             atc_name: formData.atc_name,
             atc_address: formData.atc_address,
             course_code: formData.course_code,
@@ -1120,12 +1086,12 @@ const AdminMarksheet = () => {
               practical_max: parseInt(subject.practical_max) || 0
             })),
 
-            total_marks: totalMarks,
-            obtained_marks: obtainedMarks,
-            percentage: parseFloat(percentage),
-            overall_grade: grade,
-            status: finalResult,
-            result: finalResult
+            total_marks: parseFloat(formData.total_marks) || 100,
+            obtained_marks: parseFloat(formData.obtained_marks) || 0,
+            percentage: parseFloat(formData.percentage) || 0,
+            overall_grade: formData.grade || 'C',
+            status: formData.result || 'pass',
+            result: formData.result || 'pass'
           };
 
           console.log('📋 [MARKSHEET] Creating new marksheet with data:', {
@@ -1159,7 +1125,7 @@ const AdminMarksheet = () => {
           console.log('✅ [MARKSHEET] Backend response:', response);
 
           // Show success message
-          alert(`🎉 Marksheet created successfully!\n\n📋 Student: ${formData.student_name}\n📚 Course: ${formData.course_code || courseData.course_name || courseData.name}\n🎯 Percentage: ${percentage}%\n✅ Result: ${finalResult.toUpperCase()}\n\nMarksheet has been generated successfully!`);
+          alert(`🎉 Marksheet created successfully!\n\n📋 Student: ${formData.student_name}\n📚 Course: ${formData.course_code || courseData.course_name || courseData.name}\n🎯 Percentage: ${formData.percentage}%\n✅ Result: ${formData.result.toUpperCase()}\n\nMarksheet has been generated successfully!`);
 
           // Reset form and close modal
           setShowModal(false);
@@ -1697,7 +1663,7 @@ const AdminMarksheet = () => {
                   <th className="px-4 py-4 text-left text-sm font-semibold text-secondary-700">Student Details</th>
                   <th className="px-4 py-4 text-left text-sm font-semibold text-secondary-700">Course Info</th>
                   <th className="px-4 py-4 text-center text-sm font-semibold text-secondary-700">Semester</th>
-
+                  <th className="px-4 py-4 text-center text-sm font-semibold text-secondary-700">Marks</th>
                   <th className="px-4 py-4 text-center text-sm font-semibold text-secondary-700">Grade</th>
                   <th className="px-4 py-4 text-center text-sm font-semibold text-secondary-700">Result</th>
                   <th className="px-4 py-4 text-center text-sm font-semibold text-secondary-700">Actions</th>
@@ -1706,7 +1672,7 @@ const AdminMarksheet = () => {
               <tbody className="divide-y divide-gray-100">
                 {loading ? (
                   <tr>
-                    <td colSpan="6" className="px-4 py-12 text-center">
+                    <td colSpan="7" className="px-4 py-12 text-center">
                       <div className="flex items-center justify-center space-x-2">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-amber-600"></div>
                         <span className="text-sm text-gray-500">Loading marksheets...</span>
@@ -1715,7 +1681,7 @@ const AdminMarksheet = () => {
                   </tr>
                 ) : currentItems.length === 0 ? (
                   <tr>
-                    <td colSpan="6" className="px-4 py-12 text-center text-sm text-gray-500">
+                    <td colSpan="7" className="px-4 py-12 text-center text-sm text-gray-500">
                       No marksheets found
                     </td>
                   </tr>
@@ -1752,7 +1718,24 @@ const AdminMarksheet = () => {
                           </div>
                         </td>
 
-
+                        <td className="px-4 py-4 text-center">
+                          <div className="space-y-1">
+                            <div className="text-sm font-semibold text-gray-900">
+                              {marksheet.obtained_marks || marksheet.obtainedMarks || 0}/{marksheet.total_marks || marksheet.totalMarks || 0}
+                            </div>
+                            <div className="text-xs text-amber-600 font-medium">
+                              {marksheet.percentage || 0}%
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-1.5">
+                              <div
+                                className="bg-amber-500 h-1.5 rounded-full transition-all duration-300"
+                                style={{
+                                  width: `${Math.min(marksheet.percentage || 0, 100)}%`
+                                }}
+                              ></div>
+                            </div>
+                          </div>
+                        </td>
 
                         <td className="px-4 py-4 text-center">
                           <div className={`inline-flex items-center px-3 py-1 rounded text-xs font-medium ${getGradeColor(marksheet.grade || 'F')}`}>
